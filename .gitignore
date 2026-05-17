@@ -1,0 +1,9 @@
+.gradle/
+build/
+*/build/
+local.properties
+data/
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
