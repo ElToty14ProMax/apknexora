@@ -5,12 +5,6 @@ import android.net.Uri
 import android.util.Base64
 import java.security.MessageDigest
 
-data class ReceiptUpload(
-    val hash: String,
-    val imageBase64: String,
-    val mimeType: String,
-)
-
 fun sha256OfReceiptUri(context: Context, uri: Uri): String {
     val digest = MessageDigest.getInstance("SHA-256")
     context.contentResolver.openInputStream(uri).use { input ->

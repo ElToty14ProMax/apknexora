@@ -32,6 +32,9 @@ data class NexoraUiState(
     val pixInstructions: List<PixInstruction> = emptyList(),
     val hasSavedSession: Boolean = false,
     val passwordResetComplete: Int = 0,
+    val registrationEmail: String? = null,
+    val sessionLocked: Boolean = false,
+    val lockCountdown: Int = 0,
 )
 
 class NexoraViewModel(application: Application) : AndroidViewModel(application) {
@@ -43,8 +46,37 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         token = prefs.getString("token", null),
     )
 
+    private var lastActiveTime: Long = System.currentTimeMillis()
+    private val autoLockTimeMs = 3 * 60 * 1000L // 3 minutes
+
     var state by mutableStateOf(NexoraUiState(baseUrl = api.baseUrl, hasSavedSession = !api.token.isNullOrBlank()))
         private set
+
+    fun onAppForeground() {
+        if (state.profile != null && !state.sessionLocked) {
+            val backgroundTime = System.currentTimeMillis() - lastActiveTime
+            if (backgroundTime > autoLockTimeMs) {
+                lockSession()
+            }
+        }
+    }
+
+    fun onAppBackground() {
+        lastActiveTime = System.currentTimeMillis()
+    }
+
+    private fun lockSession() {
+        viewModelScope.launch {
+            state = state.copy(sessionLocked = true, lockCountdown = 10)
+            while (state.lockCountdown > 0 && state.sessionLocked) {
+                delay(1000)
+                state = state.copy(lockCountdown = state.lockCountdown - 1)
+            }
+            if (state.sessionLocked) {
+                logout()
+            }
+        }
+    }
 
     fun setTab(tab: MainTab) {
         state = state.copy(tab = tab, message = null, messageIsError = false)
@@ -69,7 +101,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         } else {
             result
         }
-        state = state.copy(message = message, messageIsError = false)
+        state = state.copy(message = message, messageIsError = false, registrationEmail = email)
     }
 
     fun verifyEmail(email: String, code: String) = launchUi {
@@ -120,7 +152,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
     fun unlockSavedSession() = launchUi {
         if (api.token.isNullOrBlank()) throw ApiError("Sessão salva ausente.")
         loadAll()
-        state = state.copy(tab = MainTab.PAINEL, message = null, messageIsError = false, hasSavedSession = true)
+        state = state.copy(tab = MainTab.PAINEL, message = null, messageIsError = false, hasSavedSession = true, sessionLocked = false)
     }
 
     fun logout() {
@@ -211,6 +243,10 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         state = state.copy(message = null, messageIsError = false)
     }
 
+    fun clearRegistrationEmail() {
+        state = state.copy(registrationEmail = null)
+    }
+
     fun showValidationError(message: String) {
         state = state.copy(message = message, messageIsError = true)
     }
@@ -229,11 +265,13 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun adminApproveUser(id: String) = adminAction("/admin/users/$id/approve", "Usuário aprovado.")
     fun adminBlockUser(id: String) = adminAction("/admin/users/$id/block", "Usuário bloqueado.")
+    fun adminUnblockUser(id: String) = adminAction("/admin/users/$id/unblock", "Usuário desbloqueado.")
     fun adminConfirmFee(id: String) = adminAction("user-fee-$id", "/admin/users/$id/confirm-admin-fee", "Taxa baixada.")
     fun adminApproveRequest(id: String) = adminAction("/admin/support-requests/$id/approve", "Solicitação aprovada.")
     fun adminRejectRequest(id: String) = adminAction("/admin/support-requests/$id/reject", "Solicitação recusada.")
     fun adminConfirmReturn(id: String) = adminAction("/admin/support-requests/$id/confirm-return", "Retorno validado.")
     fun adminConfirmContribution(id: String) = adminAction("contribution-confirm-$id", "/admin/contributions/$id/confirm", "Apoio validado.")
+    fun adminRejectContribution(id: String) = adminAction("contribution-reject-$id", "/admin/contributions/$id/reject", "Apoio recusado.")
 
     private fun adminAction(path: String, success: String) = adminAction(path, path, success)
 

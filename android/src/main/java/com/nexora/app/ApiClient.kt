@@ -35,8 +35,12 @@ class ApiClient(
                 .put("inviteCode", inviteCode ?: ""),
             auth = false,
         )
-        response.optString("devVerificationCode").takeIf { it.isNotBlank() }
-            ?: response.optString("message", "Cadastro criado.")
+        val devCode = if (response.isNull("devVerificationCode")) null else response.optString("devVerificationCode")
+        val message = if (response.isNull("message")) null else response.optString("message")
+
+        devCode?.takeIf { it.isNotBlank() && it != "null" }
+            ?: message?.takeIf { it.isNotBlank() && it != "null" }
+            ?: "Cadastro realizado com sucesso."
     }
 
     suspend fun verifyEmail(email: String, code: String) = withContext(Dispatchers.IO) {
@@ -288,8 +292,11 @@ class ApiClient(
         }.orEmpty()
         connection.disconnect()
         if (status !in 200..299) {
-            val message = runCatching { JSONObject(text).optString("error") }.getOrNull()
-            throw ApiError(message?.takeIf { it.isNotBlank() } ?: "Erro $status")
+            val message = runCatching {
+                val json = JSONObject(text)
+                if (json.isNull("error")) null else json.optString("error")
+            }.getOrNull()
+            throw ApiError(message?.takeIf { it.isNotBlank() && it != "null" } ?: "Erro $status")
         }
         return text
     }

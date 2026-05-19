@@ -40,17 +40,38 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import android.provider.MediaStore
+import android.content.ContentValues
+import android.os.Build
+import java.io.OutputStream
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -64,6 +85,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -76,6 +98,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.animation.core.*
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.time.Instant
@@ -110,6 +137,19 @@ class MainActivity : FragmentActivity() {
             ) {
                 Surface(color = NexoraBlack) {
                     val viewModel: NexoraViewModel = viewModel()
+                    
+                    DisposableEffect(lifecycle) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            when (event) {
+                                Lifecycle.Event.ON_START -> viewModel.onAppForeground()
+                                Lifecycle.Event.ON_STOP -> viewModel.onAppBackground()
+                                else -> Unit
+                            }
+                        }
+                        lifecycle.addObserver(observer)
+                        onDispose { lifecycle.removeObserver(observer) }
+                    }
+
                     NexoraApp(
                         viewModel = viewModel,
                         biometricAvailable = biometricAvailable,
@@ -199,6 +239,101 @@ private fun NexoraApp(
         if (state.loading) {
             LoadingOverlay(state.loadingAction ?: "Aguarde")
         }
+
+        if (state.sessionLocked) {
+            SessionLockOverlay(
+                countdown = state.lockCountdown,
+                biometricAvailable = biometricAvailable,
+                onUnlock = onBiometricLogin,
+                onLogout = viewModel::logout
+            )
+        }
+    }
+}
+
+@Composable
+private fun SessionLockOverlay(
+    countdown: Int,
+    biometricAvailable: Boolean,
+    onUnlock: () -> Unit,
+    onLogout: () -> Unit,
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "countdown")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.95f))
+            .clickable(enabled = false) {},
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = null,
+                tint = NexoraGreen,
+                modifier = Modifier.size(64.dp)
+            )
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "Sessão Suspensa",
+                color = NexoraText,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                "Por segurança, sua sessão foi bloqueada devido à inatividade.",
+                color = NexoraMuted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            
+            Spacer(Modifier.height(48.dp))
+            
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { countdown / 10f },
+                    modifier = Modifier.size(100.dp),
+                    color = NexoraGreen,
+                    strokeWidth = 8.dp,
+                    trackColor = NexoraDarkGreen
+                )
+                Text(
+                    "$countdown",
+                    color = NexoraText.copy(alpha = alpha),
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            Spacer(Modifier.height(48.dp))
+            
+            if (biometricAvailable) {
+                NexoraButton(
+                    text = "DESBLOQUEAR",
+                    onClick = onUnlock
+                )
+            }
+            
+            TextButton(
+                onClick = onLogout,
+                modifier = Modifier.padding(top = 16.dp)
+            ) {
+                Text("Sair agora", color = NexoraRed)
+            }
+        }
     }
 }
 
@@ -225,6 +360,14 @@ private fun AuthScreen(
     var showServerConfig by rememberSaveable { mutableStateOf(false) }
     var invalidFields by remember { mutableStateOf(emptySet<String>()) }
     var handledPasswordReset by rememberSaveable { mutableIntStateOf(0) }
+
+    LaunchedEffect(state.registrationEmail) {
+        state.registrationEmail?.let {
+            mode = AuthMode.VERIFY
+            email = it
+            viewModel.clearRegistrationEmail()
+        }
+    }
 
     LaunchedEffect(state.passwordResetComplete) {
         if (state.passwordResetComplete > handledPasswordReset) {
@@ -430,10 +573,7 @@ private fun AuthScreen(
                     if (validateAuthAction()) {
                         when (mode) {
                             AuthMode.LOGIN -> viewModel.login(cpf, password)
-                            AuthMode.REGISTER -> {
-                                viewModel.register(name, email, cpf, pixKey, password, invite.takeIf { it.isNotBlank() } )
-                                mode = AuthMode.VERIFY
-                            }
+                            AuthMode.REGISTER -> viewModel.register(name, email, cpf, pixKey, password, invite.takeIf { it.isNotBlank() } )
                             AuthMode.VERIFY -> viewModel.verifyEmail(email, code)
                             AuthMode.RECOVER_SEND -> {
                                 viewModel.recoverPassword(email)
@@ -627,6 +767,16 @@ private fun NexoraBottomBar(state: NexoraUiState, viewModel: NexoraViewModel) {
 private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     val profile = state.profile ?: return
     val dashboard = state.dashboard
+    var historyFilter by rememberSaveable { mutableStateOf("ACTIVE") }
+    val filteredHistory = remember(state.contributionHistory, historyFilter) {
+        val sorted = state.contributionHistory.sortedByDescending { it.createdAt }
+        when (historyFilter) {
+            "ACTIVE" -> sorted.filter { it.status != "CANCELLED" && it.status != "EXPIRED" }
+            "CANCELLED" -> sorted.filter { it.status == "CANCELLED" || it.status == "EXPIRED" }
+            else -> sorted
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
@@ -686,6 +836,16 @@ private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
 @Composable
 private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     var batchAmount by rememberSaveable { mutableStateOf("") }
+    var historyFilter by rememberSaveable { mutableStateOf("ACTIVE") }
+    val filteredHistory = remember(state.contributionHistory, historyFilter) {
+        val sorted = state.contributionHistory.sortedByDescending { it.createdAt }
+        when (historyFilter) {
+            "ACTIVE" -> sorted.filter { it.status != "CANCELLED" && it.status != "EXPIRED" }
+            "CANCELLED" -> sorted.filter { it.status == "CANCELLED" || it.status == "EXPIRED" }
+            else -> sorted
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
@@ -812,6 +972,16 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         }
         context.startActivity(Intent.createChooser(intent, "Compartilhar convite"))
     }
+    var historyFilter by rememberSaveable { mutableStateOf("ACTIVE") }
+    val filteredHistory = remember(state.contributionHistory, historyFilter) {
+        val sorted = state.contributionHistory.sortedByDescending { it.createdAt }
+        when (historyFilter) {
+            "ACTIVE" -> sorted.filter { it.status != "CANCELLED" && it.status != "EXPIRED" }
+            "CANCELLED" -> sorted.filter { it.status == "CANCELLED" || it.status == "EXPIRED" }
+            else -> sorted
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
@@ -880,21 +1050,19 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                         },
                         border = BorderStroke(1.dp, NexoraGreen),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        modifier = Modifier.weight(1f).height(54.dp),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = NexoraGreen, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Copiar link", color = NexoraGreen, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copiar link", tint = NexoraGreen, modifier = Modifier.size(24.dp))
                     }
                     Button(
                         onClick = { shareInvite() },
                         colors = ButtonDefaults.buttonColors(containerColor = NexoraGreen, contentColor = NexoraBlack),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        modifier = Modifier.weight(1f).height(54.dp),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
-                        Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Compartilhar convite", fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Icon(Icons.Filled.Share, contentDescription = "Compartilhar convite", modifier = Modifier.size(24.dp))
                     }
                 }
             }
@@ -924,12 +1092,37 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
             }
         }
         item {
-            Text("Histórico de transações", color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Column {
+                Text("Histórico de transações", color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf("ACTIVE" to "Ativas", "CANCELLED" to "Canceladas", "ALL" to "Todas").forEach { (id, label) ->
+                        FilterChip(
+                            selected = historyFilter == id,
+                            onClick = { historyFilter = id },
+                            label = { Text(label, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NexoraDarkGreen,
+                                selectedLabelColor = NexoraGreen,
+                                labelColor = NexoraMuted,
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = historyFilter == id,
+                                borderColor = Color(0xFF282828),
+                                selectedBorderColor = NexoraGreen,
+                            ),
+                        )
+                    }
+                }
+            }
         }
-        if (state.contributionHistory.isEmpty()) {
-            item { EmptyState("Sem transações", "Transferências Pix aparecem aqui uma única vez por ID") }
+        if (filteredHistory.isEmpty()) {
+            item { EmptyState("Sem transações", "Nenhuma transação encontrada nesta categoria") }
         } else {
-            items(state.contributionHistory, key = { it.id }) { contribution ->
+            items(filteredHistory, key = { it.id }) { contribution ->
                 ContributionHistoryCard(contribution, viewModel)
             }
         }
@@ -1107,6 +1300,32 @@ private fun AdminScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     }
 }
 
+@Composable
+private fun FilterInput(
+    placeholder: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = { Text(placeholder, fontSize = 12.sp) },
+        modifier = modifier.height(48.dp),
+        singleLine = true,
+        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+        shape = RoundedCornerShape(8.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = NexoraText,
+            unfocusedTextColor = NexoraText,
+            focusedBorderColor = NexoraGreen,
+            unfocusedBorderColor = Color(0xFF282828),
+            focusedContainerColor = NexoraField,
+            unfocusedContainerColor = NexoraField,
+        ),
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AdminFilterPanel(
@@ -1124,15 +1343,16 @@ private fun AdminFilterPanel(
     showReceipt: Boolean,
 ) {
     NexoraPanel {
-        NexoraInput("Buscar por nome, CPF, Pix, ID ou código", query, onQueryChange)
+        FilterInput("Buscar...", query, onQueryChange, Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
-        Text("Status", color = NexoraMuted, fontSize = 13.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            statusOptions.take(4).forEach { status ->
+        Text("Status", color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            statusOptions.forEach { status ->
                 FilterChip(
                     selected = statusFilter == status,
                     onClick = { onStatusChange(status) },
-                    label = { Text(if (status == "ALL") "Todos" else statusLabel(status), maxLines = 1) },
+                    label = { Text(if (status == "ALL") "Todos" else statusLabel(status), fontSize = 11.sp) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = NexoraDarkGreen,
                         selectedLabelColor = NexoraGreen,
@@ -1147,37 +1367,16 @@ private fun AdminFilterPanel(
                 )
             }
         }
-        if (statusOptions.size > 4) {
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                statusOptions.drop(4).forEach { status ->
-                    FilterChip(
-                        selected = statusFilter == status,
-                        onClick = { onStatusChange(status) },
-                        label = { Text(statusLabel(status), maxLines = 1) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = NexoraDarkGreen,
-                            selectedLabelColor = NexoraGreen,
-                            labelColor = NexoraMuted,
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = statusFilter == status,
-                            borderColor = Color(0xFF282828),
-                            selectedBorderColor = NexoraGreen,
-                        ),
-                    )
-                }
-            }
-        }
         if (showReceipt) {
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Text("Comprovantes", color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 listOf("ALL" to "Todos", "complete" to "Completos", "missing" to "Pendentes").forEach { (value, label) ->
                     FilterChip(
                         selected = receiptFilter == value,
                         onClick = { onReceiptChange(value) },
-                        label = { Text(label, maxLines = 1) },
+                        label = { Text(label, fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = NexoraDarkGreen,
                             selectedLabelColor = NexoraGreen,
@@ -1194,9 +1393,11 @@ private fun AdminFilterPanel(
             }
         }
         Spacer(Modifier.height(12.dp))
+        Text("Período (AAAA-MM-DD)", color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
+        Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            NexoraInput("De (AAAA-MM-DD)", fromDate, onFromDateChange, modifier = Modifier.weight(1f))
-            NexoraInput("Até (AAAA-MM-DD)", toDate, onToDateChange, modifier = Modifier.weight(1f))
+            FilterInput("Desde", fromDate, onFromDateChange, Modifier.weight(1f))
+            FilterInput("Hasta", toDate, onToDateChange, Modifier.weight(1f))
         }
     }
 }
@@ -1208,12 +1409,10 @@ private fun DetailAction(onClick: () -> Unit) {
         border = BorderStroke(1.dp, NexoraGreen),
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = NexoraGreen),
-        contentPadding = PaddingValues(horizontal = 12.dp),
-        modifier = Modifier.height(46.dp),
+        contentPadding = PaddingValues(0.dp),
+        modifier = Modifier.size(width = 58.dp, height = 46.dp),
     ) {
-        Icon(Icons.Filled.Visibility, contentDescription = null, tint = NexoraGreen, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text("Detalhes", color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Icon(Icons.Filled.Visibility, contentDescription = "Ver Detalhes", tint = NexoraGreen, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -1288,22 +1487,64 @@ private fun AdminContributionDetailDialog(contribution: AdminContribution, onDis
         DetailLine("Criado em", formatTimestamp(contribution.createdAt))
         DetailLine("Doador", "${contribution.donorName.ifBlank { contribution.donorPublicId }} · ${contribution.donorEmail}")
         DetailLine("Recebedor", "${contribution.receiverName.ifBlank { contribution.receiverPublicId }} · ${contribution.receiverEmail}")
-        Spacer(Modifier.height(12.dp))
+        
+        contribution.ocrComparisonResult?.let { result ->
+            Spacer(Modifier.height(16.dp))
+            OCRStatusSection(result, contribution.ocrComparisonNotes, contribution.evidenceComplete)
+        } ?: run {
+            Spacer(Modifier.height(16.dp))
+            OCRStatusSection(null, null, contribution.evidenceComplete)
+        }
+
+        Spacer(Modifier.height(16.dp))
         ReceiptPreview(
-            title = "Foto enviada por quem pagou",
+            title = "Comprovante do Doador",
             date = contribution.senderReceiptDate,
             submittedAt = contribution.senderReceiptSubmittedAt,
             hash = contribution.senderReceiptHash,
             imageBase64 = contribution.senderReceiptImageBase64,
+            ocrId = contribution.senderOcrTransactionId,
+            ocrAmount = contribution.senderOcrAmountCents,
+            ocrConfidence = contribution.senderOcrConfidence,
         )
         Spacer(Modifier.height(12.dp))
         ReceiptPreview(
-            title = "Foto enviada por quem recebeu",
+            title = "Comprovante do Recebedor",
             date = contribution.receiverReceiptDate,
             submittedAt = contribution.receiverReceiptSubmittedAt,
             hash = contribution.receiverReceiptHash,
             imageBase64 = contribution.receiverReceiptImageBase64,
+            ocrId = contribution.receiverOcrTransactionId,
+            ocrAmount = contribution.receiverOcrAmountCents,
+            ocrConfidence = contribution.receiverOcrConfidence,
         )
+    }
+}
+
+@Composable
+private fun OCRStatusSection(result: String?, notes: String?, evidenceComplete: Boolean) {
+    val (color, icon, label) = when {
+        !evidenceComplete -> Triple(NexoraMuted, Icons.Filled.Info, "AGUARDANDO SEGUNDA FOTO")
+        result?.uppercase() == "MATCH" -> Triple(NexoraGreen, Icons.Filled.CheckCircle, "SISTEMA: COINCIDÊNCIA TOTAL")
+        result?.uppercase() == "NO_MATCH" || result?.uppercase() == "MISMATCH" -> Triple(NexoraRed, Icons.Filled.Warning, "SISTEMA: DIVERGÊNCIA ENCONTRADA")
+        result?.uppercase() == "PENDING" -> Triple(Color.Yellow, Icons.Filled.Info, "SISTEMA: REVISÃO MANUAL")
+        else -> Triple(NexoraMuted, Icons.Filled.Info, result ?: "ANÁLISE EM CURSO")
+    }
+
+    NexoraPanel(background = color.copy(alpha = 0.1f), border = true) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label, color = color, fontWeight = FontWeight.Black, fontSize = 14.sp)
+        }
+        notes?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, color = NexoraText.copy(alpha = 0.8f), fontSize = 13.sp)
+        }
+        if (!evidenceComplete) {
+            Spacer(Modifier.height(4.dp))
+            Text("O sistema só pode comparar os dados quando ambos os comprovantes forem enviados.", color = NexoraMuted, fontSize = 12.sp)
+        }
     }
 }
 
@@ -1340,9 +1581,33 @@ private fun DetailLine(label: String, value: String) {
 }
 
 @Composable
-private fun ReceiptPreview(title: String, date: String?, submittedAt: Long?, hash: String?, imageBase64: String?) {
+private fun ReceiptPreview(
+    title: String,
+    date: String?,
+    submittedAt: Long?,
+    hash: String?,
+    imageBase64: String?,
+    ocrId: String? = null,
+    ocrAmount: Long? = null,
+    ocrConfidence: String? = null
+) {
+    val context = LocalContext.current
+    var showFullScreen by remember { mutableStateOf(false) }
+
     NexoraPanel {
-        Text(title, color = NexoraGreen, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = NexoraGreen, fontWeight = FontWeight.Bold)
+            if (imageBase64 != null) {
+                Row {
+                    IconButton(onClick = { showFullScreen = true }) {
+                        Icon(Icons.Filled.ZoomIn, contentDescription = "Ver Grande", tint = NexoraGreen)
+                    }
+                    IconButton(onClick = { downloadImage(context, imageBase64, "comprovante_${System.currentTimeMillis()}.png") }) {
+                        Icon(Icons.Filled.Download, contentDescription = "Download", tint = NexoraGreen)
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         val bitmap = remember(imageBase64) {
             imageBase64?.let {
@@ -1357,7 +1622,11 @@ private fun ReceiptPreview(title: String, date: String?, submittedAt: Long?, has
                 bitmap = bitmap,
                 contentDescription = title,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().height(220.dp).background(NexoraField, RoundedCornerShape(8.dp)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .background(NexoraField, RoundedCornerShape(8.dp))
+                    .clickable { showFullScreen = true },
             )
         } else {
             Box(
@@ -1367,10 +1636,109 @@ private fun ReceiptPreview(title: String, date: String?, submittedAt: Long?, has
                 Text("Sem foto anexada", color = NexoraMuted)
             }
         }
+        
+        if (ocrId != null || ocrAmount != null) {
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().background(NexoraBlack.copy(alpha = 0.3f), RoundedCornerShape(4.dp)).padding(8.dp)) {
+                Column {
+                    Text("Lido pelo Sistema (OCR)", color = NexoraGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    ocrId?.let { Text("ID: $it", color = NexoraText, fontSize = 12.sp) }
+                    ocrAmount?.let { Text("Valor: ${formatMoney(it)}", color = NexoraText, fontSize = 12.sp) }
+                    ocrConfidence?.let { Text("Confiança: $it", color = NexoraMuted, fontSize = 11.sp) }
+                }
+            }
+        }
+
         Spacer(Modifier.height(8.dp))
-        DetailLine("Data", date ?: "-")
+        DetailLine("Data no Comprovante", date ?: "-")
         DetailLine("Enviado em", submittedAt?.let { formatTimestamp(it) } ?: "-")
-        DetailLine("Hash", hash ?: "-")
+        DetailLine("Hash SHA-256", hash?.take(16)?.let { "$it..." } ?: "-")
+    }
+
+    if (showFullScreen && imageBase64 != null) {
+        FullScreenImageDialog(imageBase64, onDismiss = { showFullScreen = false })
+    }
+}
+
+@Composable
+private fun FullScreenImageDialog(imageBase64: String, onDismiss: () -> Unit) {
+    val bitmap = remember(imageBase64) {
+        runCatching {
+            val bytes = Base64.decode(imageBase64, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }.getOrNull()
+    }
+
+    if (bitmap == null) return
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            var scale by remember { mutableStateOf(1f) }
+            var offset by remember { mutableStateOf(Offset.Zero) }
+            val state = rememberTransformableState { zoomChange, offsetChange, _ ->
+                scale *= zoomChange
+                offset += offsetChange
+            }
+
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale.coerceIn(1f, 5f),
+                        scaleY = scale.coerceIn(1f, 5f),
+                        translationX = offset.x,
+                        translationY = offset.y
+                    )
+                    .transformable(state = state)
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 5f)
+                            offset += pan
+                        }
+                    },
+                contentScale = ContentScale.Fit
+            )
+
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "Fechar", tint = Color.White)
+            }
+        }
+    }
+}
+
+private fun downloadImage(context: android.content.Context, base64: String, filename: String) {
+    runCatching {
+        val bytes = Base64.decode(base64, Base64.DEFAULT)
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES)
+            }
+        }
+
+        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        uri?.let {
+            context.contentResolver.openOutputStream(it)?.use { stream ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+            }
+            Toast.makeText(context, "Imagem salva na galeria!", Toast.LENGTH_SHORT).show()
+        } ?: throw Exception("Failed to create URI")
+    }.onFailure {
+        Toast.makeText(context, "Erro ao salvar imagem: ${it.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1743,8 +2111,14 @@ private fun ContributionHistoryCard(contribution: ContributionHistory, viewModel
                     onClick = { showUpload = !showUpload },
                     border = BorderStroke(1.dp, NexoraGreen),
                     shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text(if (showUpload) "Ocultar comprovante" else "Anexar comprovante", color = NexoraGreen, fontWeight = FontWeight.Bold)
+                    Icon(
+                        if (showUpload) Icons.Filled.Close else Icons.Filled.AttachFile,
+                        contentDescription = if (showUpload) "Ocultar" else "Anexar",
+                        tint = NexoraGreen
+                    )
                 }
                 if (showUpload) {
                     Spacer(Modifier.height(10.dp))
@@ -1770,25 +2144,21 @@ private fun ReceiptUploadControls(
     onSubmit: (String, Long, String, ReceiptUpload, String, String) -> Unit,
 ) {
     val context = LocalContext.current
-    var transactionId by rememberSaveable(contributionId, side) { mutableStateOf("") }
     var receiptDate by rememberSaveable(contributionId, side) { mutableStateOf(LocalDate.now().toString()) }
     var upload by remember(contributionId, side) { mutableStateOf<ReceiptUpload?>(null) }
     var localError by remember(contributionId, side) { mutableStateOf<String?>(null) }
-    var transactionIdError by remember(contributionId, side) { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             runCatching { receiptUploadFromUri(context, uri) }
                 .onSuccess {
                     upload = it
                     localError = null
-                    transactionIdError = false
                 }
                 .onFailure { localError = it.message ?: "Não foi possível anexar a foto." }
         }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        NexoraInput("ID da transação Pix", transactionId, { transactionId = it; transactionIdError = false }, isError = transactionIdError)
         NexoraInput("Data do comprovante", receiptDate, { receiptDate = it }, readOnly = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(
@@ -1796,30 +2166,33 @@ private fun ReceiptUploadControls(
                 enabled = !loading,
                 border = BorderStroke(1.dp, NexoraGreen),
                 shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f).height(56.dp),
+                contentPadding = PaddingValues(0.dp)
             ) {
-                Text(if (upload == null) "Anexar foto" else "Foto pronta", color = NexoraGreen, fontWeight = FontWeight.Bold)
+                Icon(
+                    if (upload == null) Icons.Filled.AddAPhoto else Icons.Filled.Check,
+                    contentDescription = if (upload == null) "Anexar foto" else "Foto pronta",
+                    tint = NexoraGreen
+                )
             }
             Button(
                 onClick = {
                     val currentUpload = upload
-                    when {
-                        transactionId.isBlank() -> {
-                            transactionIdError = true
-                            localError = "Informe o ID da transação Pix."
-                        }
-                        currentUpload == null -> localError = "Anexe a foto do comprovante."
-                        else -> {
-                            transactionIdError = false
-                            localError = null
-                            onSubmit(contributionId, amountCents, transactionId, currentUpload, receiptDate, side)
-                        }
+                    if (currentUpload == null) {
+                        localError = "Anexe a foto do comprovante."
+                    } else {
+                        localError = null
+                        // We send blank transactionId because the backend will extract it from OCR
+                        onSubmit(contributionId, amountCents, "", currentUpload, receiptDate, side)
                     }
                 },
                 enabled = !loading,
                 colors = ButtonDefaults.buttonColors(containerColor = NexoraGreen, contentColor = NexoraBlack),
                 shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f).height(56.dp),
+                contentPadding = PaddingValues(0.dp)
             ) {
-                Text("ENVIAR", fontWeight = FontWeight.Black)
+                Icon(Icons.Filled.Send, contentDescription = "ENVIAR")
             }
         }
         localError?.let { Text(it, color = NexoraRed, fontSize = 13.sp) }
@@ -1841,7 +2214,7 @@ private fun ProgressLine(current: Long, total: Long) {
 private fun StatusPill(status: String) {
     val color = when (status) {
         "APPROVED", "OPEN", "FUNDED", "RETURNED", "CONFIRMED" -> NexoraGreen
-        "BLOCKED", "REJECTED" -> NexoraRed
+        "BLOCKED", "REJECTED", "CANCELLED", "EXPIRED" -> NexoraRed
         else -> NexoraMuted
     }
     Box(
@@ -1863,6 +2236,8 @@ private fun statusLabel(status: String): String = when (status) {
     "RETURNED" -> "concluído"
     "CONFIRMED" -> "validado"
     "REJECTED" -> "recusado"
+    "CANCELLED" -> "cancelado"
+    "EXPIRED" -> "expirado"
     else -> status.lowercase()
 }
 
@@ -1879,23 +2254,51 @@ private fun LabelValue(label: String, value: String, compact: Boolean = false, o
 @Composable
 private fun AdminUserCard(user: AdminUser, viewModel: NexoraViewModel, onDetails: () -> Unit) {
     NexoraPanel {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(user.name, color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                Text("${user.publicId} · ${user.email}", color = NexoraMuted)
-                Text("CPF ${user.cpf} · Pix ${user.pixKey}", color = NexoraMuted, fontSize = 13.sp)
-                Text("Lv ${user.level} · XP ${user.xp} · Buff ${formatBuff(user.buffBps)}", color = NexoraMuted)
-                Text("Criado: ${formatTimestamp(user.createdAt)}", color = NexoraMuted, fontSize = 12.sp)
-                if (user.adminFeeDueCents > 0) Text("Taxa: ${formatMoney(user.adminFeeDueCents)}", color = NexoraRed)
+                Text(user.name, color = NexoraText, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                Text("${user.publicId} · ${user.email}", color = NexoraMuted, fontSize = 13.sp)
             }
             StatusPill(user.status)
         }
+        
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Color(0xFF222222))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            LabelValue("CPF", user.cpf, compact = true)
+            LabelValue("Lv / XP", "${user.level} / ${user.xp}", compact = true)
+            LabelValue("BUFF", formatBuff(user.buffBps), compact = true)
+        }
+        
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LabelValue("Chave Pix", user.pixKey, compact = true)
+        
+        if (user.adminFeeDueCents > 0) {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().background(NexoraRed.copy(alpha = 0.1f), RoundedCornerShape(4.dp)).padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Filled.Warning, contentDescription = null, tint = NexoraRed, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Taxa pendente: ${formatMoney(user.adminFeeDueCents)}", color = NexoraRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             DetailAction(onDetails)
-            SmallAction("Aprovar usuário", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/approve") { viewModel.adminApproveUser(user.id) }
-            SmallAction("Bloquear usuário", NexoraRed, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/block") { viewModel.adminBlockUser(user.id) }
-            if (user.adminFeeDueCents > 0) SmallAction("Baixar taxa", NexoraMuted, loading = viewModel.state.actionInProgress == "user-fee-${user.id}") { viewModel.adminConfirmFee(user.id) }
+            if (user.status == "PENDING_REVIEW") {
+                SmallAction("Aprovar", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/approve") { viewModel.adminApproveUser(user.id) }
+            }
+            if (user.status == "BLOCKED") {
+                SmallAction("Ativar", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/unblock") { viewModel.adminUnblockUser(user.id) }
+            } else {
+                SmallAction("Bloquear", NexoraRed, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/block") { viewModel.adminBlockUser(user.id) }
+            }
+            if (user.adminFeeDueCents > 0) {
+                SmallAction("Baixar Taxa", NexoraMuted, loading = viewModel.state.actionInProgress == "user-fee-${user.id}") { viewModel.adminConfirmFee(user.id) }
+            }
         }
     }
 }
@@ -1903,28 +2306,41 @@ private fun AdminUserCard(user: AdminUser, viewModel: NexoraViewModel, onDetails
 @Composable
 private fun AdminRequestCard(request: AdminSupportRequest, viewModel: NexoraViewModel, onDetails: () -> Unit) {
     NexoraPanel {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(Modifier.weight(1f)) {
-                Text(request.requesterName, color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                Text("${request.publicCode} · ${request.requesterPublicId}", color = NexoraMuted)
-                Text(request.requesterEmail, color = NexoraMuted, fontSize = 13.sp)
-                Text("${formatMoney(request.amountCents)} · taxa ${formatMoney(request.adminFeeCents)}", color = NexoraMuted)
-                Text("Criado: ${formatTimestamp(request.createdAt)}", color = NexoraMuted, fontSize = 12.sp)
-            }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(formatMoney(request.amountCents), color = NexoraGreen, fontSize = 22.sp, fontWeight = FontWeight.Black)
             StatusPill(request.status)
         }
-        request.description?.let {
-            Text(it, color = Color(0xFFB8B8B8), modifier = Modifier.padding(top = 10.dp))
+        
+        Spacer(Modifier.height(8.dp))
+        Text(request.publicCode, color = NexoraMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Color(0xFF222222))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("Solicitante", color = NexoraMuted, fontSize = 11.sp)
+                Text(request.requesterName, color = NexoraText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Prazo", color = NexoraMuted, fontSize = 11.sp)
+                Text("${request.dueDays} dias", color = NexoraText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        
+        request.description?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = Color(0xFFB8B8B8), fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             DetailAction(onDetails)
             if (request.status == "PENDING_ADMIN") {
-                SmallAction("Aprovar solicitação", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/approve") { viewModel.adminApproveRequest(request.id) }
-                SmallAction("Recusar solicitação", NexoraRed, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/reject") { viewModel.adminRejectRequest(request.id) }
+                SmallAction("Aprovar", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/approve") { viewModel.adminApproveRequest(request.id) }
+                SmallAction("Recusar", NexoraRed, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/reject") { viewModel.adminRejectRequest(request.id) }
             }
             if (request.status == "FUNDED") {
-                SmallAction("Validar retorno", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/confirm-return") { viewModel.adminConfirmReturn(request.id) }
+                SmallAction("Validar Retorno", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/confirm-return") { viewModel.adminConfirmReturn(request.id) }
             }
         }
     }
@@ -1933,30 +2349,65 @@ private fun AdminRequestCard(request: AdminSupportRequest, viewModel: NexoraView
 @Composable
 private fun AdminContributionCard(contribution: AdminContribution, viewModel: NexoraViewModel, onDetails: () -> Unit) {
     NexoraPanel {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(Modifier.weight(1f)) {
-                Text(formatMoney(contribution.amountCents), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                Text("${contribution.requestPublicCode} · ${contribution.donorPublicId} -> ${contribution.receiverPublicId}", color = NexoraMuted)
-                Text("${contribution.donorName.ifBlank { "Doador" }} -> ${contribution.receiverName.ifBlank { "Recebedor" }}", color = NexoraMuted, fontSize = 13.sp)
-                Text("ID: ${contribution.transactionId ?: "pendente"}", color = NexoraMuted)
-                Text("Data: ${formatTimestamp(contribution.createdAt)}", color = NexoraMuted, fontSize = 12.sp)
-                Text(
-                    "Envio: ${if (contribution.hasSenderReceipt) "foto" else "pendente"} · Recebimento: ${if (contribution.hasReceiverReceipt) "foto" else "pendente"}",
-                    color = if (contribution.evidenceComplete) NexoraGreen else NexoraMuted,
-                )
-            }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(formatMoney(contribution.amountCents), color = NexoraGreen, fontSize = 24.sp, fontWeight = FontWeight.Black)
             StatusPill(contribution.status)
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DetailAction(onDetails)
+        
+        Spacer(Modifier.height(8.dp))
+        Text(contribution.requestPublicCode, color = NexoraMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Color(0xFF222222))
+        
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Person, contentDescription = null, tint = NexoraMuted, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "${contribution.donorPublicId} -> ${contribution.receiverPublicId}",
+                    color = NexoraText,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Text(
+                "${contribution.donorName.ifBlank { "Doador" }} -> ${contribution.receiverName.ifBlank { "Recebedor" }}",
+                color = NexoraMuted,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(start = 24.dp)
+            )
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = NexoraMuted, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "ID: ${contribution.transactionId ?: "pendente"}",
+                    color = NexoraText,
+                    fontSize = 13.sp
+                )
+            }
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = if (contribution.evidenceComplete) NexoraGreen else NexoraMuted, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Envio: ${if (contribution.hasSenderReceipt) "foto" else "pendente"} · Recibo: ${if (contribution.hasReceiverReceipt) "foto" else "pendente"}",
+                    color = if (contribution.evidenceComplete) NexoraGreen else NexoraMuted,
+                    fontSize = 13.sp
+                )
+            }
         }
-        if (contribution.status == "PENDING_ADMIN") {
-            Spacer(Modifier.height(12.dp))
-            if (contribution.evidenceComplete) {
-                SmallAction("Validar Pix", NexoraGreen, loading = viewModel.state.actionInProgress == "contribution-confirm-${contribution.id}") { viewModel.adminConfirmContribution(contribution.id) }
-            } else {
-                Text("Aguarde as duas fotos antes de validar.", color = NexoraMuted, fontSize = 14.sp)
+
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            DetailAction(onDetails)
+            if (contribution.status == "PENDING_ADMIN") {
+                if (contribution.evidenceComplete) {
+                    SmallAction("Validar", NexoraGreen, loading = viewModel.state.actionInProgress == "contribution-confirm-${contribution.id}") { viewModel.adminConfirmContribution(contribution.id) }
+                } else {
+                    Text("Aguardando fotos", color = NexoraMuted, fontSize = 12.sp, fontStyle = FontStyle.Italic)
+                }
+                SmallAction("Recusar", NexoraRed, loading = viewModel.state.actionInProgress == "contribution-reject-${contribution.id}") { viewModel.adminRejectContribution(contribution.id) }
             }
         }
     }
