@@ -1,0 +1,59 @@
+package com.nexora.app
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class NexoraUiRulesTest {
+    @Test
+    fun connection_errors_do_not_expose_backend_wording() {
+        val message = friendlyErrorMessage("Problema con backend: java.net.SocketTimeoutException")
+
+        assertEquals("Problema de conexão. Confira sua internet e tente novamente.", message)
+        assertFalse(message.contains("backend", ignoreCase = true))
+    }
+
+    @Test
+    fun history_defaults_can_show_expired_transactions_when_all_is_selected() {
+        val history = listOf(
+            contribution("active", "PENDING_RECEIPTS", 1000L),
+            contribution("expired", "EXPIRED", 2000L),
+            contribution("cancelled", "CANCELLED", 3000L),
+        )
+
+        assertEquals(listOf("cancelled", "expired", "active"), filterContributionHistory(history, "ALL").map { it.id })
+        assertEquals(listOf("active"), filterContributionHistory(history, "ACTIVE").map { it.id })
+        assertEquals(listOf("cancelled", "expired"), filterContributionHistory(history, "CANCELLED").map { it.id })
+    }
+
+    @Test
+    fun language_options_have_flags() {
+        assertEquals("🇧🇷", AppLanguage.PT.flag)
+        assertEquals("🇪🇸", AppLanguage.ES.flag)
+        assertEquals("🇺🇸", AppLanguage.EN.flag)
+    }
+
+    @Test
+    fun random_pix_key_validator_rejects_email_phone_and_cpf() {
+        assertTrue(isRandomPixKey("550e8400-e29b-41d4-a716-446655440000"))
+        assertFalse(isRandomPixKey("pix@example.com"))
+        assertFalse(isRandomPixKey("+5511987654321"))
+        assertFalse(isRandomPixKey("52998224725"))
+    }
+
+    private fun contribution(id: String, status: String, createdAt: Long) = ContributionHistory(
+        id = id,
+        transactionId = null,
+        requestPublicCode = "AP-TEST",
+        donorPublicId = "NX-DONOR",
+        receiverPublicId = "NX-RECEIVER",
+        direction = "SENT",
+        amountCents = 1000,
+        status = status,
+        hasSenderReceipt = false,
+        hasReceiverReceipt = false,
+        evidenceComplete = false,
+        createdAt = createdAt,
+    )
+}

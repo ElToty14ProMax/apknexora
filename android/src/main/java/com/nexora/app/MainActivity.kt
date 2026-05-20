@@ -804,14 +804,9 @@ private fun NexoraBottomBar(state: NexoraUiState, viewModel: NexoraViewModel) {
 private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     val profile = state.profile ?: return
     val dashboard = state.dashboard
-    var historyFilter by rememberSaveable { mutableStateOf("ACTIVE") }
+    var historyFilter by rememberSaveable { mutableStateOf("ALL") }
     val filteredHistory = remember(state.contributionHistory, historyFilter) {
-        val sorted = state.contributionHistory.sortedByDescending { it.createdAt }
-        when (historyFilter) {
-            "ACTIVE" -> sorted.filter { it.status != "CANCELLED" && it.status != "EXPIRED" }
-            "CANCELLED" -> sorted.filter { it.status == "CANCELLED" || it.status == "EXPIRED" }
-            else -> sorted
-        }
+        filterContributionHistory(state.contributionHistory, historyFilter)
     }
 
     LazyColumn(
@@ -873,14 +868,9 @@ private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
 @Composable
 private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     var batchAmount by rememberSaveable { mutableStateOf("") }
-    var historyFilter by rememberSaveable { mutableStateOf("ACTIVE") }
+    var historyFilter by rememberSaveable { mutableStateOf("ALL") }
     val filteredHistory = remember(state.contributionHistory, historyFilter) {
-        val sorted = state.contributionHistory.sortedByDescending { it.createdAt }
-        when (historyFilter) {
-            "ACTIVE" -> sorted.filter { it.status != "CANCELLED" && it.status != "EXPIRED" }
-            "CANCELLED" -> sorted.filter { it.status == "CANCELLED" || it.status == "EXPIRED" }
-            else -> sorted
-        }
+        filterContributionHistory(state.contributionHistory, historyFilter)
     }
 
     LazyColumn(
@@ -895,7 +885,7 @@ private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                 NexoraPanel(border = true) {
                     Text("Pix por ordem cronológica", color = NexoraGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         NexoraInput("Valor total", batchAmount, { batchAmount = it }, Modifier.weight(1f), "R$ 0,00", KeyboardType.Decimal)
                         Button(
                             onClick = {
@@ -909,7 +899,7 @@ private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                             enabled = !state.loading,
                             colors = ButtonDefaults.buttonColors(containerColor = NexoraGreen, contentColor = NexoraBlack),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.height(56.dp),
+                            modifier = Modifier.height(64.dp),
                         ) {
                             Text("GERAR", fontWeight = FontWeight.Black)
                         }
@@ -920,11 +910,7 @@ private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                 item { EmptyState("Comunidade estável", "Nenhuma solicitação de outros usuários ativa no momento") }
             } else {
                 items(state.community, key = { it.id }) { request ->
-                    CommunityRequestCard(
-                        request = request,
-                        onSupport = { cents -> viewModel.createContribution(request, cents) },
-                        onError = viewModel::showValidationError,
-                    )
+                    CommunityRequestCard(request = request)
                 }
             }
     }
@@ -1009,14 +995,9 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         }
         context.startActivity(Intent.createChooser(intent, "Compartilhar convite"))
     }
-    var historyFilter by rememberSaveable { mutableStateOf("ACTIVE") }
+    var historyFilter by rememberSaveable { mutableStateOf("ALL") }
     val filteredHistory = remember(state.contributionHistory, historyFilter) {
-        val sorted = state.contributionHistory.sortedByDescending { it.createdAt }
-        when (historyFilter) {
-            "ACTIVE" -> sorted.filter { it.status != "CANCELLED" && it.status != "EXPIRED" }
-            "CANCELLED" -> sorted.filter { it.status == "CANCELLED" || it.status == "EXPIRED" }
-            else -> sorted
-        }
+        filterContributionHistory(state.contributionHistory, historyFilter)
     }
 
     LazyColumn(
@@ -1086,7 +1067,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
                         onClick = {
                             clipboard.setText(AnnotatedString(inviteLink))
@@ -1094,19 +1075,23 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                         },
                         border = BorderStroke(1.dp, NexoraGreen),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f).height(54.dp),
-                        contentPadding = PaddingValues(0.dp)
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
                     ) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copiar link", tint = NexoraGreen, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copiar link", tint = NexoraGreen, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Copiar", color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                     Button(
                         onClick = { shareInvite() },
                         colors = ButtonDefaults.buttonColors(containerColor = NexoraGreen, contentColor = NexoraBlack),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f).height(54.dp),
-                        contentPadding = PaddingValues(0.dp)
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
                     ) {
-                        Icon(Icons.Filled.Share, contentDescription = "Compartilhar convite", modifier = Modifier.size(24.dp))
+                        Icon(Icons.Filled.Share, contentDescription = "Compartilhar convite", modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Compartilhar", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                     }
                 }
             }
@@ -1896,7 +1881,7 @@ private fun LanguageSelector(language: AppLanguage, onSelect: (AppLanguage) -> U
             FilterChip(
                 selected = option == language,
                 onClick = { onSelect(option) },
-                label = { Text(option.label, maxLines = 1) },
+                label = { Text(option.flag, fontSize = 22.sp, maxLines = 1) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = NexoraGreen,
                     selectedLabelColor = NexoraBlack,
@@ -2091,8 +2076,7 @@ private fun EmptyState(title: String, subtitle: String) {
 }
 
 @Composable
-private fun CommunityRequestCard(request: SupportRequest, onSupport: (Long) -> Unit, onError: (String) -> Unit) {
-    var amount by remember(request.id) { mutableStateOf("") }
+private fun CommunityRequestCard(request: SupportRequest) {
     NexoraPanel {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -2109,25 +2093,8 @@ private fun CommunityRequestCard(request: SupportRequest, onSupport: (Long) -> U
         ) {
             Text("Solicitação ativa", color = NexoraGreen, fontWeight = FontWeight.Bold)
         }
-        Spacer(Modifier.height(14.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            NexoraInput("Valor", amount, { amount = it }, Modifier.weight(1f), "R$ 0,00", KeyboardType.Decimal)
-            Button(
-                onClick = {
-                    val cents = parseMoneyToCents(amount)
-                    if (cents == null || cents <= 0) {
-                        onError("Informe um valor valido para apoiar.")
-                    } else {
-                        onSupport(cents)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = NexoraGreen, contentColor = NexoraBlack),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.height(56.dp),
-            ) {
-                Text("APOIAR", fontWeight = FontWeight.Black)
-            }
-        }
+        Spacer(Modifier.height(10.dp))
+        Text("Será atendida pelo botão principal de Pix por ordem cronológica.", color = NexoraMuted, fontSize = 13.sp)
     }
 }
 
@@ -2302,10 +2269,6 @@ private fun StatusPill(status: String) {
         Text(statusLabel(status), color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
-
-private fun isRandomPixKey(value: String): Boolean =
-    Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
-        .matches(value.trim())
 
 private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.current): String {
     val pt = mapOf(

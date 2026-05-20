@@ -9,6 +9,13 @@ enum class AppLanguage(val code: String, val label: String, val localeTag: Strin
     ES("es", "Español", "es-ES"),
     EN("en", "English", "en-US");
 
+    val flag: String
+        get() = when (this) {
+            PT -> "🇧🇷"
+            ES -> "🇪🇸"
+            EN -> "🇺🇸"
+        }
+
     companion object {
         fun fromCode(code: String?): AppLanguage =
             entries.firstOrNull { it.code == code } ?: PT

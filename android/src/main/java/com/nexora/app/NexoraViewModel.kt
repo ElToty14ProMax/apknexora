@@ -296,7 +296,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
                 loadAdmin()
                 loadAll()
             } catch (error: Exception) {
-                state = state.copy(message = friendlyError(error.message ?: "Erro inesperado."), messageIsError = true)
+                state = state.copy(message = friendlyErrorMessage(error.message ?: "Erro inesperado."), messageIsError = true)
             } finally {
                 state = state.copy(actionInProgress = null)
             }
@@ -329,7 +329,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 block()
             } catch (error: Exception) {
-                val cleanMessage = friendlyError(error.message ?: "Erro inesperado.")
+                val cleanMessage = friendlyErrorMessage(error.message ?: "Erro inesperado.")
                 if (error.message?.contains("Sessão", ignoreCase = true) == true ||
                     error.message?.contains("Token", ignoreCase = true) == true
                 ) {
