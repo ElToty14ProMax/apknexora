@@ -35,12 +35,14 @@ data class NexoraUiState(
     val registrationEmail: String? = null,
     val sessionLocked: Boolean = false,
     val lockCountdown: Int = 0,
+    val language: AppLanguage = AppLanguage.PT,
 )
 
 class NexoraViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("nexora", 0)
     private val defaultBaseUrl = "https://backend-laravel-two.vercel.app"
     private val savedBaseUrl = prefs.getString("base_url", null)
+    private val savedLanguage = AppLanguage.fromCode(prefs.getString("language", null))
     private val api = ApiClient(
         baseUrl = savedBaseUrl?.takeUnless { it.startsWith("http://10.0.2.2") } ?: defaultBaseUrl,
         token = prefs.getString("token", null),
@@ -49,8 +51,12 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
     private var lastActiveTime: Long = System.currentTimeMillis()
     private val autoLockTimeMs = 3 * 60 * 1000L // 3 minutes
 
-    var state by mutableStateOf(NexoraUiState(baseUrl = api.baseUrl, hasSavedSession = !api.token.isNullOrBlank()))
+    var state by mutableStateOf(NexoraUiState(baseUrl = api.baseUrl, hasSavedSession = !api.token.isNullOrBlank(), language = savedLanguage))
         private set
+
+    init {
+        NexoraLanguageStore.current = savedLanguage
+    }
 
     fun onAppForeground() {
         if (state.profile != null && !state.sessionLocked) {
@@ -94,8 +100,14 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         state = state.copy(baseUrl = api.baseUrl)
     }
 
-    fun register(name: String, email: String, cpf: String, pixKey: String, password: String, inviteCode: String?) = launchUi {
-        val result = api.register(name, email, cpf, pixKey, password, inviteCode)
+    fun setLanguage(language: AppLanguage) {
+        NexoraLanguageStore.current = language
+        prefs.edit().putString("language", language.code).apply()
+        state = state.copy(language = language)
+    }
+
+    fun register(name: String, email: String, cpf: String, birthdate: String, pixKey: String, password: String, inviteCode: String?) = launchUi {
+        val result = api.register(name, email, cpf, birthdate, pixKey, password, inviteCode)
         val message = if (result.all { it.isDigit() } && result.length == 6) {
             "Cadastro criado. Código dev: $result"
         } else {
@@ -161,7 +173,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
             delay(350)
             api.token = null
             prefs.edit().remove("token").apply()
-            state = NexoraUiState(baseUrl = api.baseUrl, hasSavedSession = false)
+            state = NexoraUiState(baseUrl = api.baseUrl, hasSavedSession = false, language = state.language)
         }
     }
 
@@ -323,7 +335,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
                 ) {
                     prefs.edit().remove("token").apply()
                     api.token = null
-                    state = NexoraUiState(baseUrl = api.baseUrl, message = cleanMessage, messageIsError = true, hasSavedSession = false)
+                    state = NexoraUiState(baseUrl = api.baseUrl, message = cleanMessage, messageIsError = true, hasSavedSession = false, language = state.language)
                 } else {
                     state = state.copy(message = cleanMessage, messageIsError = true)
                 }

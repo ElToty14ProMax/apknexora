@@ -19,6 +19,7 @@ class ApiClient(
         name: String,
         email: String,
         cpf: String,
+        birthdate: String,
         pixKey: String,
         password: String,
         inviteCode: String?,
@@ -30,6 +31,7 @@ class ApiClient(
                 .put("name", name)
                 .put("email", email)
                 .put("cpf", cpf)
+                .put("birthdate", birthdate)
                 .put("pixKey", pixKey)
                 .put("password", password)
                 .put("inviteCode", inviteCode ?: ""),

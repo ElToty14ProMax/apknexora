@@ -199,6 +199,10 @@ private fun NexoraApp(
     val snackbarHostState = remember { SnackbarHostState() }
     var snackbarIsError by remember { mutableStateOf(false) }
 
+    SideEffect {
+        NexoraLanguageStore.current = state.language
+    }
+
     LaunchedEffect(state.message, state.messageIsError) {
         state.message?.let { message ->
             snackbarIsError = state.messageIsError
@@ -350,6 +354,7 @@ private fun AuthScreen(
     var name by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
     var cpf by rememberSaveable { mutableStateOf("") }
+    var birthdate by rememberSaveable { mutableStateOf("") }
     var pixKey by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
@@ -360,6 +365,7 @@ private fun AuthScreen(
     var showServerConfig by rememberSaveable { mutableStateOf(false) }
     var invalidFields by remember { mutableStateOf(emptySet<String>()) }
     var handledPasswordReset by rememberSaveable { mutableIntStateOf(0) }
+    val language = state.language
 
     LaunchedEffect(state.registrationEmail) {
         state.registrationEmail?.let {
@@ -391,21 +397,38 @@ private fun AuthScreen(
         return false
     }
 
+    fun validBirthdate(): Boolean {
+        if (!Regex("""\d{4}-\d{2}-\d{2}""").matches(birthdate)) {
+            return fail("birthdate", uiText("birthdateInvalid", language))
+        }
+        val parsed = runCatching { LocalDate.parse(birthdate) }.getOrNull()
+            ?: return fail("birthdate", uiText("birthdateInvalid", language))
+        val today = LocalDate.now()
+        return when {
+            parsed.isAfter(today.minusYears(13)) -> fail("birthdate", uiText("minimumAge", language))
+            parsed.isBefore(today.minusYears(120)) -> fail("birthdate", uiText("birthdateInvalid", language))
+            else -> true
+        }
+    }
+
     fun validateAuthAction(): Boolean = when (mode) {
         AuthMode.LOGIN -> when {
-            cpf.isBlank() -> fail("identifier", "Informe seu CPF ou e-mail.")
-            password.isBlank() -> fail("password", "Informe sua senha.")
+            cpf.isBlank() -> fail("identifier", uiText("identifierRequired", language))
+            password.isBlank() -> fail("password", uiText("passwordRequired", language))
             else -> {
                 invalidFields = emptySet()
                 true
             }
         }
         AuthMode.REGISTER -> when {
-            name.trim().length < 2 -> fail("name", "Informe seu nome completo.")
-            email.isBlank() || !email.contains("@") -> fail("email", "Informe um e-mail valido.")
-            cpf.filter(Char::isDigit).length != 11 -> fail("cpf", "Informe um CPF com 11 dígitos.")
-            pixKey.isBlank() -> fail("pixKey", "Informe sua chave Pix.")
-            password.length < 8 -> fail("password", "A senha precisa ter pelo menos 8 caracteres.")
+            name.trim().length < 2 -> fail("name", uiText("nameRequired", language))
+            email.isBlank() || !email.contains("@") -> fail("email", uiText("emailInvalid", language))
+            cpf.filter(Char::isDigit).length != 11 -> fail("cpf", uiText("cpfRequired", language))
+            birthdate.isBlank() -> fail("birthdate", uiText("birthdateRequired", language))
+            !validBirthdate() -> false
+            pixKey.isBlank() -> fail("pixKey", uiText("pixRequired", language))
+            !isRandomPixKey(pixKey) -> fail("pixKey", uiText("pixRandomRequired", language))
+            password.length < 8 -> fail("password", uiText("passwordMin", language))
             else -> {
                 invalidFields = emptySet()
                 true
@@ -453,11 +476,11 @@ private fun AuthScreen(
         
         Text(
             text = when (mode) {
-                AuthMode.LOGIN -> "Entrar"
-                AuthMode.REGISTER -> "Cadastro"
-                AuthMode.VERIFY -> "Verificar e-mail"
-                AuthMode.RECOVER_SEND -> "Recuperar senha"
-                AuthMode.RECOVER_RESET -> "Nova senha"
+                AuthMode.LOGIN -> uiText("loginTitle", language)
+                AuthMode.REGISTER -> uiText("registerTitle", language)
+                AuthMode.VERIFY -> uiText("verifyTitle", language)
+                AuthMode.RECOVER_SEND -> uiText("recoverTitle", language)
+                AuthMode.RECOVER_RESET -> uiText("newPasswordTitle", language)
             },
             color = NexoraText,
             fontSize = 32.sp,
@@ -467,51 +490,65 @@ private fun AuthScreen(
         )
         Text(
             text = when (mode) {
-                AuthMode.LOGIN -> "Acesse com CPF ou e-mail"
-                AuthMode.REGISTER -> "Preencha seus dados para começar"
-                AuthMode.VERIFY -> "Digite o código enviado ao e-mail"
-                AuthMode.RECOVER_SEND -> "Informe o e-mail para receber um código"
-                AuthMode.RECOVER_RESET -> if (code.length == 6) "Defina e confirme a nova senha" else "Digite o código recebido por e-mail"
+                AuthMode.LOGIN -> uiText("loginSubtitle", language)
+                AuthMode.REGISTER -> uiText("registerSubtitle", language)
+                AuthMode.VERIFY -> uiText("verifySubtitle", language)
+                AuthMode.RECOVER_SEND -> uiText("recoverSubtitle", language)
+                AuthMode.RECOVER_RESET -> if (code.length == 6) uiText("newPasswordSubtitle", language) else uiText("recoverCodeSubtitle", language)
             },
             color = NexoraMuted,
             fontSize = 16.sp,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 32.dp),
             textAlign = TextAlign.Start,
         )
+        LanguageSelector(language = language, onSelect = viewModel::setLanguage)
+        Spacer(Modifier.height(20.dp))
 
         NexoraPanel {
             if (mode == AuthMode.REGISTER) {
-                NexoraInput("Nome completo", name, { name = it; clearInvalid("name") }, isError = "name" in invalidFields)
+                NexoraInput(uiText("fullName", language), name, { name = it; clearInvalid("name") }, isError = "name" in invalidFields)
                 Spacer(Modifier.height(16.dp))
-                NexoraInput("E-mail", email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
+                NexoraInput(uiText("email", language), email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
                 Spacer(Modifier.height(16.dp))
                 NexoraInput("CPF", cpf, { if (it.length <= 11) cpf = it; clearInvalid("cpf") }, keyboardType = KeyboardType.Number, visualTransformation = CpfVisualTransformation(), isError = "cpf" in invalidFields)
                 Spacer(Modifier.height(16.dp))
-                NexoraInput("Chave Pix", pixKey, { pixKey = it; clearInvalid("pixKey") }, placeholder = "Chave Pix (CPF, e-mail ou aleatória)", isError = "pixKey" in invalidFields)
+                NexoraInput(
+                    uiText("birthdate", language),
+                    birthdate,
+                    {
+                        birthdate = it.filter { char -> char.isDigit() || char == '-' }.take(10)
+                        clearInvalid("birthdate")
+                    },
+                    placeholder = "AAAA-MM-DD",
+                    keyboardType = KeyboardType.Number,
+                    isError = "birthdate" in invalidFields,
+                )
                 Spacer(Modifier.height(16.dp))
-                NexoraInput("Código de convite", invite, { invite = it })
+                NexoraInput(uiText("pixKey", language), pixKey, { pixKey = it.trim(); clearInvalid("pixKey") }, placeholder = uiText("pixPlaceholder", language), isError = "pixKey" in invalidFields)
+                Spacer(Modifier.height(16.dp))
+                NexoraInput(uiText("inviteCode", language), invite, { invite = it })
                 Spacer(Modifier.height(16.dp))
             } else {
                 when (mode) {
                     AuthMode.LOGIN -> {
-                        NexoraInput("CPF ou e-mail", cpf, { cpf = it; clearInvalid("identifier") }, isError = "identifier" in invalidFields)
+                        NexoraInput(uiText("cpfOrEmail", language), cpf, { cpf = it; clearInvalid("identifier") }, isError = "identifier" in invalidFields)
                         Spacer(Modifier.height(16.dp))
                     }
                     AuthMode.VERIFY -> {
-                        NexoraInput("E-mail", email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
+                        NexoraInput(uiText("email", language), email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
                         Spacer(Modifier.height(16.dp))
-                        NexoraInput("Código", code, { if (it.length <= 6) code = it; clearInvalid("code") }, keyboardType = KeyboardType.Number, isError = "code" in invalidFields)
+                        NexoraInput(uiText("code", language), code, { if (it.length <= 6) code = it; clearInvalid("code") }, keyboardType = KeyboardType.Number, isError = "code" in invalidFields)
                         Spacer(Modifier.height(16.dp))
                     }
                     AuthMode.RECOVER_SEND -> {
-                        NexoraInput("E-mail", email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
+                        NexoraInput(uiText("email", language), email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
                         Spacer(Modifier.height(16.dp))
                     }
                     else -> {
-                        NexoraInput("E-mail", email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
+                        NexoraInput(uiText("email", language), email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
                         Spacer(Modifier.height(16.dp))
                         NexoraInput(
-                            "Código",
+                            uiText("code", language),
                             code,
                             {
                                 if (it.length <= 6) code = it
@@ -528,7 +565,7 @@ private fun AuthScreen(
                         Spacer(Modifier.height(16.dp))
                         if (code.length == 6) {
                             NexoraInput(
-                                "Nova senha",
+                                uiText("newPassword", language),
                                 newPassword,
                                 { newPassword = it; clearInvalid("newPassword") },
                                 password = true,
@@ -536,7 +573,7 @@ private fun AuthScreen(
                             )
                             Spacer(Modifier.height(16.dp))
                             NexoraInput(
-                                "Confirmar nova senha",
+                                uiText("confirmNewPassword", language),
                                 confirmNewPassword,
                                 { confirmNewPassword = it; clearInvalid("confirmNewPassword") },
                                 password = true,
@@ -550,7 +587,7 @@ private fun AuthScreen(
 
             if (mode == AuthMode.LOGIN || mode == AuthMode.REGISTER) {
                 NexoraInput(
-                    label = "Senha",
+                    label = uiText("password", language),
                     value = password,
                     onValueChange = { password = it; clearInvalid("password") },
                     password = true,
@@ -561,11 +598,11 @@ private fun AuthScreen(
 
             NexoraButton(
                 text = when (mode) {
-                    AuthMode.LOGIN -> "ENTRAR"
-                    AuthMode.REGISTER -> "CRIAR CONTA"
-                    AuthMode.VERIFY -> "VERIFICAR"
-                    AuthMode.RECOVER_SEND -> "ENVIAR CÓDIGO"
-                    AuthMode.RECOVER_RESET -> if (code.length == 6) "ATUALIZAR SENHA" else "DIGITE O CÓDIGO"
+                    AuthMode.LOGIN -> uiText("loginButton", language)
+                    AuthMode.REGISTER -> uiText("registerButton", language)
+                    AuthMode.VERIFY -> uiText("verifyButton", language)
+                    AuthMode.RECOVER_SEND -> uiText("sendCodeButton", language)
+                    AuthMode.RECOVER_RESET -> if (code.length == 6) uiText("updatePasswordButton", language) else uiText("enterCodeButton", language)
                 },
                 loading = state.loading,
                 enabled = mode != AuthMode.RECOVER_RESET || code.length == 6,
@@ -573,7 +610,7 @@ private fun AuthScreen(
                     if (validateAuthAction()) {
                         when (mode) {
                             AuthMode.LOGIN -> viewModel.login(cpf, password)
-                            AuthMode.REGISTER -> viewModel.register(name, email, cpf, pixKey, password, invite.takeIf { it.isNotBlank() } )
+                            AuthMode.REGISTER -> viewModel.register(name, email, cpf, birthdate, pixKey, password, invite.takeIf { it.isNotBlank() } )
                             AuthMode.VERIFY -> viewModel.verifyEmail(email, code)
                             AuthMode.RECOVER_SEND -> {
                                 viewModel.recoverPassword(email)
@@ -592,11 +629,11 @@ private fun AuthScreen(
             ) {
                 Text(
                     text = when (mode) {
-                        AuthMode.LOGIN -> "Ainda não tem conta?"
-                        AuthMode.REGISTER -> "Já tem conta?"
-                        AuthMode.VERIFY -> "Não recebeu o código?"
-                        AuthMode.RECOVER_SEND -> "Lembrou a senha?"
-                        AuthMode.RECOVER_RESET -> "Senha atualizada?"
+                        AuthMode.LOGIN -> uiText("noAccount", language)
+                        AuthMode.REGISTER -> uiText("hasAccount", language)
+                        AuthMode.VERIFY -> uiText("noCode", language)
+                        AuthMode.RECOVER_SEND -> uiText("rememberedPassword", language)
+                        AuthMode.RECOVER_RESET -> uiText("passwordUpdatedQuestion", language)
                     },
                     color = NexoraMuted,
                 )
@@ -612,11 +649,11 @@ private fun AuthScreen(
                 }) {
                     Text(
                         text = when (mode) {
-                            AuthMode.LOGIN -> "Cadastre-se"
-                            AuthMode.REGISTER -> "Entrar"
-                            AuthMode.VERIFY -> "Voltar"
-                            AuthMode.RECOVER_SEND -> "Entrar"
-                            AuthMode.RECOVER_RESET -> "Entrar"
+                            AuthMode.LOGIN -> uiText("signUp", language)
+                            AuthMode.REGISTER -> uiText("loginTitle", language)
+                            AuthMode.VERIFY -> uiText("back", language)
+                            AuthMode.RECOVER_SEND -> uiText("loginTitle", language)
+                            AuthMode.RECOVER_RESET -> uiText("loginTitle", language)
                         },
                         color = NexoraGreen,
                         fontWeight = FontWeight.Bold,
@@ -944,9 +981,9 @@ private fun RequestScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     invalidField = "days"
                     viewModel.showValidationError("Informe o prazo em dias.")
                 }
-                dueDays !in 1..90 -> {
+                dueDays !in 1..30 -> {
                     invalidField = "days"
-                    viewModel.showValidationError("O prazo precisa ficar entre 1 e 90 dias.")
+                    viewModel.showValidationError("O prazo precisa ficar entre 1 e 30 dias.")
                 }
                 else -> {
                     invalidField = null
@@ -992,6 +1029,13 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         }
         item {
             NexoraPanel {
+                Text(uiText("language", state.language), color = NexoraMuted, fontSize = 13.sp, letterSpacing = 1.sp)
+                Spacer(Modifier.height(10.dp))
+                LanguageSelector(language = state.language, onSelect = viewModel::setLanguage)
+            }
+        }
+        item {
+            NexoraPanel {
                 Text(profile.name, color = NexoraText, fontSize = 28.sp, fontWeight = FontWeight.Black)
                 Text(profile.email, color = NexoraMuted, fontSize = 14.sp)
                 Spacer(Modifier.height(20.dp))
@@ -1023,7 +1067,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         }
         item {
             NexoraPanel {
-                LabelValue("Chave Pix", profile.pixKeyMasked, onCopy = {
+                LabelValue("Chave Pix aleatória", profile.pixKeyMasked, onCopy = {
                     clipboard.setText(AnnotatedString(profile.pixKeyMasked))
                     Toast.makeText(context, "Chave Pix copiada!", Toast.LENGTH_SHORT).show()
                 })
@@ -1422,7 +1466,7 @@ private fun AdminUserDetailDialog(user: AdminUser, onDismiss: () -> Unit) {
         DetailLine("Public ID", user.publicId)
         DetailLine("E-mail", user.email)
         DetailLine("CPF", user.cpf)
-        DetailLine("Chave Pix", user.pixKey)
+        DetailLine("Chave Pix aleatória", user.pixKey)
         DetailLine("Status", statusLabel(user.status))
         DetailLine("Função", user.role)
         DetailLine("Nível", "${user.level}")
@@ -1430,7 +1474,7 @@ private fun AdminUserDetailDialog(user: AdminUser, onDismiss: () -> Unit) {
         DetailLine("Buff", formatBuff(user.buffBps))
         DetailLine("Limite", formatMoney(user.supportLimitCents))
         DetailLine("Taxa acumulada", "${formatMoney(user.adminFeeDueCents)} / ${formatMoney(user.adminFeeLimitCents)}")
-        DetailLine("Pix do admin", user.adminPixKey ?: "-")
+        DetailLine("Pix aleatório do admin", user.adminPixKey ?: "-")
         DetailLine("Convite", user.inviteCode)
         DetailLine("Convidado por", user.invitedByPublicId ?: "-")
         DetailLine("Convidados", "${user.invitedCount}")
@@ -1450,7 +1494,7 @@ private fun AdminRequestDetailDialog(
         DetailLine("Public ID", request.requesterPublicId)
         DetailLine("E-mail", request.requesterEmail)
         DetailLine("CPF", request.requesterCpf)
-        DetailLine("Chave Pix", request.requesterPixKey)
+        DetailLine("Chave Pix aleatória", request.requesterPixKey)
         DetailLine("Status", statusLabel(request.status))
         DetailLine("Valor", "${formatMoney(request.fundedCents)} / ${formatMoney(request.amountCents)}")
         DetailLine("Taxa administrativa", formatMoney(request.adminFeeCents))
@@ -1843,6 +1887,34 @@ private fun NexoraPanel(
 }
 
 @Composable
+private fun LanguageSelector(language: AppLanguage, onSelect: (AppLanguage) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AppLanguage.entries.forEach { option ->
+            FilterChip(
+                selected = option == language,
+                onClick = { onSelect(option) },
+                label = { Text(option.label, maxLines = 1) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = NexoraGreen,
+                    selectedLabelColor = NexoraBlack,
+                    labelColor = NexoraText,
+                    containerColor = NexoraField,
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = option == language,
+                    borderColor = NexoraMuted,
+                    selectedBorderColor = NexoraGreen,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
 private fun NexoraInput(
     label: String,
     value: String,
@@ -2031,11 +2103,11 @@ private fun CommunityRequestCard(request: SupportRequest, onSupport: (Long) -> U
             StatusPill(request.status)
         }
         Spacer(Modifier.height(12.dp))
-        ProgressLine(request.fundedCents, request.amountCents)
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            LabelValue("Total", formatMoney(request.amountCents), compact = true)
-            LabelValue("Falta", formatMoney((request.amountCents - request.fundedCents).coerceAtLeast(0)), compact = true)
+        Row(
+            modifier = Modifier.fillMaxWidth().background(NexoraDarkGreen.copy(alpha = 0.3f), RoundedCornerShape(8.dp)).padding(12.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text("Solicitação ativa", color = NexoraGreen, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2064,14 +2136,19 @@ private fun CompactRequestCard(request: SupportRequest) {
     NexoraPanel {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
-                Text(formatMoney(request.amountCents), color = NexoraText, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                Text(request.publicCode, color = NexoraMuted)
+                Text(request.publicCode, color = NexoraText, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                Text("Lv ${request.requesterLevel}", color = NexoraMuted)
                 Text(formatTimestamp(request.createdAt), color = NexoraMuted, fontSize = 12.sp)
             }
             StatusPill(request.status)
         }
         Spacer(Modifier.height(12.dp))
-        ProgressLine(request.fundedCents, request.amountCents)
+        Row(
+            modifier = Modifier.fillMaxWidth().background(NexoraDarkGreen.copy(alpha = 0.3f), RoundedCornerShape(8.dp)).padding(8.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text("Aguardando apoiadores", color = NexoraGreen, fontWeight = FontWeight.Medium)
+        }
     }
 }
 
@@ -2226,19 +2303,209 @@ private fun StatusPill(status: String) {
     }
 }
 
-private fun statusLabel(status: String): String = when (status) {
-    "PENDING_REVIEW" -> "aguardando admin"
-    "PENDING_ADMIN" -> "aguardando admin"
-    "APPROVED" -> "aprovado"
-    "BLOCKED" -> "bloqueado"
-    "OPEN" -> "ativo"
-    "FUNDED" -> "completo"
-    "RETURNED" -> "concluído"
-    "CONFIRMED" -> "validado"
-    "REJECTED" -> "recusado"
-    "CANCELLED" -> "cancelado"
-    "EXPIRED" -> "expirado"
-    else -> status.lowercase()
+private fun isRandomPixKey(value: String): Boolean =
+    Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        .matches(value.trim())
+
+private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.current): String {
+    val pt = mapOf(
+        "language" to "Idioma",
+        "loginTitle" to "Entrar",
+        "registerTitle" to "Cadastro",
+        "verifyTitle" to "Verificar e-mail",
+        "recoverTitle" to "Recuperar senha",
+        "newPasswordTitle" to "Nova senha",
+        "loginSubtitle" to "Acesse com CPF ou e-mail",
+        "registerSubtitle" to "Preencha seus dados para começar",
+        "verifySubtitle" to "Digite o código enviado ao e-mail",
+        "recoverSubtitle" to "Informe o e-mail para receber um código",
+        "newPasswordSubtitle" to "Defina e confirme a nova senha",
+        "recoverCodeSubtitle" to "Digite o código recebido por e-mail",
+        "fullName" to "Nome completo",
+        "email" to "E-mail",
+        "birthdate" to "Data de nascimento",
+        "pixKey" to "Chave Pix aleatória",
+        "pixPlaceholder" to "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx",
+        "inviteCode" to "Código de convite",
+        "cpfOrEmail" to "CPF ou e-mail",
+        "code" to "Código",
+        "newPassword" to "Nova senha",
+        "confirmNewPassword" to "Confirmar nova senha",
+        "password" to "Senha",
+        "loginButton" to "ENTRAR",
+        "registerButton" to "CRIAR CONTA",
+        "verifyButton" to "VERIFICAR",
+        "sendCodeButton" to "ENVIAR CÓDIGO",
+        "updatePasswordButton" to "ATUALIZAR SENHA",
+        "enterCodeButton" to "DIGITE O CÓDIGO",
+        "noAccount" to "Ainda não tem conta?",
+        "hasAccount" to "Já tem conta?",
+        "noCode" to "Não recebeu o código?",
+        "rememberedPassword" to "Lembrou a senha?",
+        "passwordUpdatedQuestion" to "Senha atualizada?",
+        "signUp" to "Cadastre-se",
+        "back" to "Voltar",
+        "identifierRequired" to "Informe seu CPF ou e-mail.",
+        "passwordRequired" to "Informe sua senha.",
+        "nameRequired" to "Informe seu nome completo.",
+        "emailInvalid" to "Informe um e-mail válido.",
+        "cpfRequired" to "Informe um CPF com 11 dígitos.",
+        "birthdateRequired" to "Informe sua data de nascimento.",
+        "birthdateInvalid" to "Data de nascimento inválida. Use AAAA-MM-DD.",
+        "minimumAge" to "Precisa ter pelo menos 13 anos para se cadastrar.",
+        "pixRequired" to "Informe sua chave Pix aleatória.",
+        "pixRandomRequired" to "Use apenas a chave Pix aleatória gerada pelo banco. CPF, e-mail e telefone não são aceitos.",
+        "passwordMin" to "A senha precisa ter pelo menos 8 caracteres.",
+    )
+    val es = mapOf(
+        "language" to "Idioma",
+        "loginTitle" to "Entrar",
+        "registerTitle" to "Registro",
+        "verifyTitle" to "Verificar e-mail",
+        "recoverTitle" to "Recuperar contraseña",
+        "newPasswordTitle" to "Nueva contraseña",
+        "loginSubtitle" to "Accede con CPF o e-mail",
+        "registerSubtitle" to "Completa tus datos para empezar",
+        "verifySubtitle" to "Escribe el código enviado al e-mail",
+        "recoverSubtitle" to "Informa el e-mail para recibir un código",
+        "newPasswordSubtitle" to "Define y confirma la nueva contraseña",
+        "recoverCodeSubtitle" to "Escribe el código recibido por e-mail",
+        "fullName" to "Nombre completo",
+        "email" to "E-mail",
+        "birthdate" to "Fecha de nacimiento",
+        "pixKey" to "Clave Pix aleatoria",
+        "pixPlaceholder" to "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx",
+        "inviteCode" to "Código de invitación",
+        "cpfOrEmail" to "CPF o e-mail",
+        "code" to "Código",
+        "newPassword" to "Nueva contraseña",
+        "confirmNewPassword" to "Confirmar nueva contraseña",
+        "password" to "Contraseña",
+        "loginButton" to "ENTRAR",
+        "registerButton" to "CREAR CUENTA",
+        "verifyButton" to "VERIFICAR",
+        "sendCodeButton" to "ENVIAR CÓDIGO",
+        "updatePasswordButton" to "ACTUALIZAR CONTRASEÑA",
+        "enterCodeButton" to "ESCRIBE EL CÓDIGO",
+        "noAccount" to "¿Aún no tienes cuenta?",
+        "hasAccount" to "¿Ya tienes cuenta?",
+        "noCode" to "¿No recibiste el código?",
+        "rememberedPassword" to "¿Recordaste la contraseña?",
+        "passwordUpdatedQuestion" to "¿Contraseña actualizada?",
+        "signUp" to "Registrarse",
+        "back" to "Volver",
+        "identifierRequired" to "Informa tu CPF o e-mail.",
+        "passwordRequired" to "Informa tu contraseña.",
+        "nameRequired" to "Informa tu nombre completo.",
+        "emailInvalid" to "Informa un e-mail válido.",
+        "cpfRequired" to "Informa un CPF con 11 dígitos.",
+        "birthdateRequired" to "Informa tu fecha de nacimiento.",
+        "birthdateInvalid" to "Fecha de nacimiento inválida. Usa AAAA-MM-DD.",
+        "minimumAge" to "Debes tener al menos 13 años para registrarte.",
+        "pixRequired" to "Informa tu clave Pix aleatoria.",
+        "pixRandomRequired" to "Usa solo la clave Pix aleatoria generada por el banco. CPF, e-mail y teléfono no se aceptan.",
+        "passwordMin" to "La contraseña debe tener al menos 8 caracteres.",
+    )
+    val en = mapOf(
+        "language" to "Language",
+        "loginTitle" to "Sign in",
+        "registerTitle" to "Create account",
+        "verifyTitle" to "Verify email",
+        "recoverTitle" to "Recover password",
+        "newPasswordTitle" to "New password",
+        "loginSubtitle" to "Use your CPF or email",
+        "registerSubtitle" to "Fill in your details to start",
+        "verifySubtitle" to "Enter the code sent to your email",
+        "recoverSubtitle" to "Enter your email to receive a code",
+        "newPasswordSubtitle" to "Set and confirm your new password",
+        "recoverCodeSubtitle" to "Enter the code received by email",
+        "fullName" to "Full name",
+        "email" to "Email",
+        "birthdate" to "Birth date",
+        "pixKey" to "Random Pix key",
+        "pixPlaceholder" to "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx",
+        "inviteCode" to "Invite code",
+        "cpfOrEmail" to "CPF or email",
+        "code" to "Code",
+        "newPassword" to "New password",
+        "confirmNewPassword" to "Confirm new password",
+        "password" to "Password",
+        "loginButton" to "SIGN IN",
+        "registerButton" to "CREATE ACCOUNT",
+        "verifyButton" to "VERIFY",
+        "sendCodeButton" to "SEND CODE",
+        "updatePasswordButton" to "UPDATE PASSWORD",
+        "enterCodeButton" to "ENTER CODE",
+        "noAccount" to "No account yet?",
+        "hasAccount" to "Already have an account?",
+        "noCode" to "Did not receive the code?",
+        "rememberedPassword" to "Remembered your password?",
+        "passwordUpdatedQuestion" to "Password updated?",
+        "signUp" to "Sign up",
+        "back" to "Back",
+        "identifierRequired" to "Enter your CPF or email.",
+        "passwordRequired" to "Enter your password.",
+        "nameRequired" to "Enter your full name.",
+        "emailInvalid" to "Enter a valid email.",
+        "cpfRequired" to "Enter an 11-digit CPF.",
+        "birthdateRequired" to "Enter your birth date.",
+        "birthdateInvalid" to "Invalid birth date. Use YYYY-MM-DD.",
+        "minimumAge" to "You must be at least 13 years old to sign up.",
+        "pixRequired" to "Enter your random Pix key.",
+        "pixRandomRequired" to "Use only the bank-generated random Pix key. CPF, email, and phone are not accepted.",
+        "passwordMin" to "Password must be at least 8 characters.",
+    )
+    return when (language) {
+        AppLanguage.PT -> pt[key]
+        AppLanguage.ES -> es[key]
+        AppLanguage.EN -> en[key]
+    } ?: pt[key] ?: key
+}
+
+private fun statusLabel(status: String): String {
+    val labels = when (NexoraLanguageStore.current) {
+        AppLanguage.PT -> mapOf(
+            "PENDING_REVIEW" to "aguardando admin",
+            "PENDING_ADMIN" to "aguardando admin",
+            "APPROVED" to "aprovado",
+            "BLOCKED" to "bloqueado",
+            "OPEN" to "ativo",
+            "FUNDED" to "completo",
+            "RETURNED" to "concluído",
+            "CONFIRMED" to "validado",
+            "REJECTED" to "recusado",
+            "CANCELLED" to "cancelado",
+            "EXPIRED" to "expirado",
+        )
+        AppLanguage.ES -> mapOf(
+            "PENDING_REVIEW" to "en revisión",
+            "PENDING_ADMIN" to "esperando admin",
+            "APPROVED" to "aprobado",
+            "BLOCKED" to "bloqueado",
+            "OPEN" to "activo",
+            "FUNDED" to "completo",
+            "RETURNED" to "devuelto",
+            "CONFIRMED" to "validado",
+            "REJECTED" to "rechazado",
+            "CANCELLED" to "cancelado",
+            "EXPIRED" to "expirado",
+        )
+        AppLanguage.EN -> mapOf(
+            "PENDING_REVIEW" to "under review",
+            "PENDING_ADMIN" to "awaiting admin",
+            "APPROVED" to "approved",
+            "BLOCKED" to "blocked",
+            "OPEN" to "active",
+            "FUNDED" to "complete",
+            "RETURNED" to "returned",
+            "CONFIRMED" to "validated",
+            "REJECTED" to "rejected",
+            "CANCELLED" to "cancelled",
+            "EXPIRED" to "expired",
+        )
+    }
+
+    return labels[status] ?: status.lowercase()
 }
 
 @Composable
@@ -2271,7 +2538,7 @@ private fun AdminUserCard(user: AdminUser, viewModel: NexoraViewModel, onDetails
         }
         
         Spacer(Modifier.height(12.dp))
-        LabelValue("Chave Pix", user.pixKey, compact = true)
+        LabelValue("Chave Pix aleatória", user.pixKey, compact = true)
         
         if (user.adminFeeDueCents > 0) {
             Spacer(Modifier.height(12.dp))
@@ -2543,14 +2810,8 @@ private fun PixDialog(
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 instructions.forEachIndexed { index, instruction ->
                     if (index > 0) HorizontalDivider(Modifier.padding(vertical = 16.dp), color = Color(0xFF252525))
-                    LabelValue("Transferência", instruction.contributionId.take(8))
-                    Spacer(Modifier.height(10.dp))
-                    LabelValue("Referência", instruction.receiverIdentifier)
-                    Spacer(Modifier.height(10.dp))
-                    LabelValue("Valor", formatMoney(instruction.amountCents))
-                    Spacer(Modifier.height(10.dp))
-                    Text(instruction.message, color = NexoraMuted)
-                    Spacer(Modifier.height(12.dp))
+                    Text("Código Pix para esta transferência:", color = NexoraMuted, fontSize = 12.sp)
+                    Spacer(Modifier.height(8.dp))
                     PixCodeBox(
                         code = instruction.pixCopyCode,
                         onCopy = {
@@ -2558,6 +2819,8 @@ private fun PixDialog(
                             Toast.makeText(context, "Código Pix copiado!", Toast.LENGTH_SHORT).show()
                         },
                     )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Identificador: ${instruction.contributionId.take(8)}", color = NexoraMuted, fontSize = 12.sp)
                 }
             }
         },

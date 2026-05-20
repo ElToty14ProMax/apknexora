@@ -4,6 +4,21 @@ import org.json.JSONObject
 import java.text.NumberFormat
 import java.util.Locale
 
+enum class AppLanguage(val code: String, val label: String, val localeTag: String) {
+    PT("pt", "Português", "pt-BR"),
+    ES("es", "Español", "es-ES"),
+    EN("en", "English", "en-US");
+
+    companion object {
+        fun fromCode(code: String?): AppLanguage =
+            entries.firstOrNull { it.code == code } ?: PT
+    }
+}
+
+object NexoraLanguageStore {
+    var current: AppLanguage = AppLanguage.PT
+}
+
 data class Profile(
     val id: String,
     val publicId: String,
@@ -355,7 +370,7 @@ fun JSONObject.toContributionHistory(): ContributionHistory = ContributionHistor
 )
 
 fun formatMoney(cents: Long): String {
-    val format = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-BR"))
+    val format = NumberFormat.getCurrencyInstance(Locale.forLanguageTag(NexoraLanguageStore.current.localeTag))
     return format.format(cents / 100.0)
 }
 
@@ -368,4 +383,4 @@ fun parseMoneyToCents(input: String): Long? {
     return normalized.toDoubleOrNull()?.let { (it * 100).toLong() }
 }
 
-fun formatBuff(bps: Int): String = String.format(Locale.forLanguageTag("pt-BR"), "+%.1f%%", bps / 100.0)
+fun formatBuff(bps: Int): String = String.format(Locale.forLanguageTag(NexoraLanguageStore.current.localeTag), "+%.1f%%", bps / 100.0)
