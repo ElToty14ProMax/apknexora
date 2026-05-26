@@ -2,6 +2,7 @@
 
 import android.os.Bundle
 import android.content.Intent
+import android.net.Uri
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.widget.Toast
@@ -90,6 +91,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.text.font.FontStyle
@@ -125,6 +127,9 @@ private val NexoraField = Color(0xFF101010)
 private val NexoraText = Color(0xFFF4F4F4)
 private val NexoraMuted = Color(0xFF8A8A93)
 private val NexoraRed = Color(0xFFFF4D4D)
+private const val NexoraDownloadUrl = "https://nexora-web-mauve.vercel.app"
+private const val NexoraContactEmail = "frankegr14@gmail.com"
+private const val NexoraContactPhone = "+5511913463247"
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -202,8 +207,20 @@ private fun NexoraApp(
     onBiometricLogin: () -> Unit,
 ) {
     val state = viewModel.state
+    val context = LocalContext.current
+    val introPrefs = remember { context.getSharedPreferences("nexora_intro", 0) }
     val snackbarHostState = remember { SnackbarHostState() }
     var snackbarIsError by remember { mutableStateOf(false) }
+    var showIntro by rememberSaveable { mutableStateOf(!introPrefs.getBoolean("dismissed", false)) }
+
+    fun dismissIntro() {
+        introPrefs.edit().putBoolean("dismissed", true).apply()
+        showIntro = false
+    }
+
+    fun openDownloadPage() {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(NexoraDownloadUrl)))
+    }
 
     SideEffect {
         NexoraLanguageStore.current = state.language
@@ -220,7 +237,13 @@ private fun NexoraApp(
 
     Box(Modifier.fillMaxSize().background(NexoraBlack)) {
         if (state.profile == null) {
-            AuthScreen(state, viewModel, biometricAvailable, onBiometricLogin)
+            AuthScreen(
+                state = state,
+                viewModel = viewModel,
+                biometricAvailable = biometricAvailable,
+                onBiometricLogin = onBiometricLogin,
+                onShowIntro = { showIntro = true },
+            )
         } else {
             MainShell(state, viewModel)
         }
@@ -256,6 +279,15 @@ private fun NexoraApp(
                 biometricAvailable = biometricAvailable,
                 onUnlock = onBiometricLogin,
                 onLogout = viewModel::logout
+            )
+        }
+
+        if (showIntro && !state.sessionLocked) {
+            TutorialDialog(
+                language = state.language,
+                onLanguageSelect = viewModel::setLanguage,
+                onDownload = ::openDownloadPage,
+                onDismiss = ::dismissIntro,
             )
         }
     }
@@ -355,6 +387,7 @@ private fun AuthScreen(
     viewModel: NexoraViewModel,
     biometricAvailable: Boolean,
     onBiometricLogin: () -> Unit,
+    onShowIntro: () -> Unit,
 ) {
     var mode by rememberSaveable { mutableStateOf(AuthMode.LOGIN) }
     var name by rememberSaveable { mutableStateOf("") }
@@ -741,6 +774,10 @@ private fun AuthScreen(
             NexoraInput(uiText("apiServer", language), server, { server = it; viewModel.updateBaseUrl(it) })
             Spacer(Modifier.height(8.dp))
         }
+
+        TextButton(onClick = onShowIntro) {
+            Text(uiText("tutorialFaq", language), color = NexoraGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
         
         TextButton(onClick = { showServerConfig = !showServerConfig }) {
             Text(if (showServerConfig) uiText("hideConfig", language) else uiText("serverConfig", language), color = NexoraMuted, fontSize = 12.sp)
@@ -1020,7 +1057,9 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     val clipboard = LocalClipboardManager.current
     val progress = (profile.xpIntoLevel.toFloat() / profile.xpRequiredThisLevel.toFloat()).coerceIn(0f, 1f)
     val inviteLink = "https://nexora-web-mauve.vercel.app?invite=${profile.inviteCode}"
-    val inviteText = "Entre na Nexora com meu convite ${profile.inviteCode}: $inviteLink"
+    val inviteText = uiText("inviteShareText", state.language)
+        .replace("{code}", profile.inviteCode)
+        .replace("{link}", inviteLink)
     fun shareInvite() {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -1099,7 +1138,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
                         onClick = {
-                            clipboard.setText(AnnotatedString(inviteLink))
+                            clipboard.setText(AnnotatedString(profile.inviteCode))
                             Toast.makeText(context, uiText("inviteCopied", state.language), Toast.LENGTH_SHORT).show()
                         },
                         border = BorderStroke(1.dp, NexoraGreen),
@@ -1107,9 +1146,9 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                         modifier = Modifier.weight(1f).height(48.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp)
                     ) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = uiText("copyLink", state.language), tint = NexoraGreen, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.ContentCopy, contentDescription = uiText("copyCode", state.language), tint = NexoraGreen, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(uiText("copy", state.language), color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(uiText("copyCode", state.language), color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                     }
                     Button(
                         onClick = { shareInvite() },
@@ -1138,6 +1177,19 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     })
                 } ?: Text(uiText("noPendingFee", state.language), color = NexoraMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
                 }
+        }
+        item {
+            FaqContactPanel(
+                language = state.language,
+                onCopyEmail = {
+                    clipboard.setText(AnnotatedString(NexoraContactEmail))
+                    Toast.makeText(context, uiText("contactCopied", state.language), Toast.LENGTH_SHORT).show()
+                },
+                onCopyPhone = {
+                    clipboard.setText(AnnotatedString(NexoraContactPhone))
+                    Toast.makeText(context, uiText("contactCopied", state.language), Toast.LENGTH_SHORT).show()
+                },
+            )
         }
         item {
             Text(uiText("myRequests", state.language), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -1829,6 +1881,134 @@ private fun downloadImage(context: android.content.Context, base64: String, file
     }
 }
 
+private data class FaqEntry(val question: String, val answer: String)
+
+@Composable
+private fun TutorialDialog(
+    language: AppLanguage,
+    onLanguageSelect: (AppLanguage) -> Unit,
+    onDownload: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = NexoraCard,
+        icon = {
+            NexoraLogoImage(
+                modifier = Modifier
+                    .size(92.dp)
+                    .padding(bottom = 4.dp),
+            )
+        },
+        title = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text(uiText("tutorialTitle", language), color = NexoraText, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(10.dp))
+                LanguageSelector(language = language, onSelect = onLanguageSelect)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(uiText("tutorialIntro", language), color = NexoraMuted, lineHeight = 20.sp)
+                tutorialSteps(language).forEachIndexed { index, step ->
+                    TutorialStep(number = index + 1, text = step)
+                }
+                HorizontalDivider(color = Color(0xFF2A2A2A))
+                Text(uiText("faqTitle", language), color = NexoraGreen, fontWeight = FontWeight.Black)
+                faqEntries(language).forEach { entry ->
+                    FaqItem(entry)
+                }
+                HorizontalDivider(color = Color(0xFF2A2A2A))
+                Text(uiText("downloadHint", language), color = NexoraMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                OutlinedButton(
+                    onClick = onDownload,
+                    border = BorderStroke(1.dp, NexoraGreen),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Download, contentDescription = null, tint = NexoraGreen)
+                    Spacer(Modifier.width(8.dp))
+                    Text(uiText("openDownloadPage", language), color = NexoraGreen, fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "${uiText("contactTitle", language)}: $NexoraContactEmail · $NexoraContactPhone",
+                    color = NexoraMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = NexoraGreen, contentColor = NexoraBlack),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(uiText("startUsing", language), fontWeight = FontWeight.Black)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(uiText("skipTutorial", language), color = NexoraMuted)
+            }
+        },
+    )
+}
+
+@Composable
+private fun TutorialStep(number: Int, text: String) {
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .background(NexoraDarkGreen, RoundedCornerShape(13.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$number", color = NexoraGreen, fontWeight = FontWeight.Black, fontSize = 12.sp)
+        }
+        Text(text, color = NexoraText, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun FaqItem(entry: FaqEntry) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(entry.question, color = NexoraText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(entry.answer, color = NexoraMuted, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+@Composable
+private fun FaqContactPanel(
+    language: AppLanguage,
+    onCopyEmail: () -> Unit,
+    onCopyPhone: () -> Unit,
+) {
+    NexoraPanel {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Filled.Info, contentDescription = null, tint = NexoraGreen)
+            Text(uiText("faqTitle", language), color = NexoraGreen, fontSize = 20.sp, fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.height(14.dp))
+        faqEntries(language).forEach { entry ->
+            FaqItem(entry)
+            Spacer(Modifier.height(12.dp))
+        }
+        HorizontalDivider(color = Color(0xFF2A2A2A))
+        Spacer(Modifier.height(12.dp))
+        Text(uiText("contactBody", language), color = NexoraMuted, fontSize = 14.sp, lineHeight = 20.sp)
+        Spacer(Modifier.height(10.dp))
+        LabelValue("E-mail", NexoraContactEmail, onCopy = onCopyEmail)
+        Spacer(Modifier.height(8.dp))
+        LabelValue(uiText("phoneContact", language), NexoraContactPhone, onCopy = onCopyPhone)
+    }
+}
+
 @Composable
 private fun HeaderRow(
     profile: Profile,
@@ -1919,20 +2099,35 @@ private fun RefreshIconButton(refreshing: Boolean, onRefresh: () -> Unit, tint: 
 @Composable
 private fun NexoraLogo(compact: Boolean = false) {
     Column(horizontalAlignment = if (compact) Alignment.Start else Alignment.CenterHorizontally) {
+        NexoraLogoImage(
+            modifier = Modifier
+                .size(if (compact) 54.dp else 120.dp)
+                .shadow(10.dp, RoundedCornerShape(24.dp), ambientColor = NexoraGreen, spotColor = NexoraGreen),
+        )
         Text(
             "NEXORA",
             color = NexoraGreen,
             fontWeight = FontWeight.Black,
-            fontSize = if (compact) 28.sp else 44.sp,
-            letterSpacing = if (compact) 2.sp else 6.sp,
+            fontSize = if (compact) 18.sp else 32.sp,
+            letterSpacing = if (compact) 1.sp else 4.sp,
             maxLines = 1,
             softWrap = false,
-            modifier = Modifier.shadow(10.dp, RoundedCornerShape(1.dp), ambientColor = NexoraGreen, spotColor = NexoraGreen),
+            modifier = Modifier.padding(top = if (compact) 2.dp else 8.dp),
         )
         if (!compact) {
             Text(uiText("tagline"), color = Color(0xFFB6B6BD), fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
         }
     }
+}
+
+@Composable
+private fun NexoraLogoImage(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(id = R.drawable.nexora_logo_centered_1024),
+        contentDescription = "Nexora",
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable
@@ -2383,6 +2578,18 @@ private fun StatusPill(status: String) {
     }
 }
 
+private fun tutorialSteps(language: AppLanguage): List<String> = listOf(
+    uiText("tutorialStepPanel", language),
+    uiText("tutorialStepCommunity", language),
+    uiText("tutorialStepProfile", language),
+)
+
+private fun faqEntries(language: AppLanguage): List<FaqEntry> = listOf(
+    FaqEntry(uiText("faqInviteQuestion", language), uiText("faqInviteAnswer", language)),
+    FaqEntry(uiText("faqPixQuestion", language), uiText("faqPixAnswer", language)),
+    FaqEntry(uiText("faqReceiptQuestion", language), uiText("faqReceiptAnswer", language)),
+)
+
 private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.current): String {
     val pt = mapOf(
         "language" to "Idioma",
@@ -2391,6 +2598,28 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "tabRequest" to "Solicitar",
         "tabProfile" to "Perfil",
         "tabAdmin" to "Admin",
+        "tutorialFaq" to "Tutorial e FAQ",
+        "tutorialTitle" to "Primeiros passos",
+        "tutorialIntro" to "Um guia curto para usar a Nexora sem complicar.",
+        "tutorialStepPanel" to "Painel: veja sua liquidez, limite, nível e histórico em um só lugar.",
+        "tutorialStepCommunity" to "Comunidade: gere o Pix em ordem cronológica para apoiar solicitações abertas.",
+        "tutorialStepProfile" to "Perfil: compartilhe apenas seu código, envie comprovantes e acompanhe suas taxas.",
+        "faqTitle" to "Perguntas frequentes",
+        "faqInviteQuestion" to "O que devo copiar para convidar alguém?",
+        "faqInviteAnswer" to "Copie só o código de convite. O link fica apenas para compartilhar a página ou instalar a app.",
+        "faqPixQuestion" to "Qual Pix devo usar?",
+        "faqPixAnswer" to "Use sempre o código Pix gerado pela Nexora. A chave da pessoa que recebe não aparece separada.",
+        "faqReceiptQuestion" to "Quando envio comprovante?",
+        "faqReceiptAnswer" to "Depois da transferência, anexe a foto do comprovante no histórico para validação.",
+        "contactTitle" to "Contato",
+        "contactBody" to "Para dúvidas simples ou suporte, use os contatos abaixo. Toque para copiar.",
+        "phoneContact" to "Telefone",
+        "contactCopied" to "Contato copiado!",
+        "downloadHint" to "Você também pode abrir a página da Nexora para acessar ou instalar a aplicação.",
+        "openDownloadPage" to "Abrir página",
+        "startUsing" to "COMEÇAR",
+        "skipTutorial" to "Sair do tutorial",
+        "inviteShareText" to "Entre na Nexora com meu código {code}. Acesse ou instale pela página: {link}",
         "communityTitle" to "Comunidade",
         "communitySubtitle" to "Solicitações ativas para apoiar",
         "communityPixOrder" to "Pix por ordem cronológica",
@@ -2668,6 +2897,28 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "tabRequest" to "Solicitar",
         "tabProfile" to "Perfil",
         "tabAdmin" to "Admin",
+        "tutorialFaq" to "Tutorial y FAQ",
+        "tutorialTitle" to "Primeros pasos",
+        "tutorialIntro" to "Una guía corta para usar Nexora sin complicarte.",
+        "tutorialStepPanel" to "Panel: mira tu liquidez, límite, nivel e historial en un solo lugar.",
+        "tutorialStepCommunity" to "Comunidad: genera Pix por orden cronológico para apoyar solicitudes abiertas.",
+        "tutorialStepProfile" to "Perfil: comparte solo tu código, sube comprobantes y revisa tus tasas.",
+        "faqTitle" to "Preguntas frecuentes",
+        "faqInviteQuestion" to "¿Qué copio para invitar a alguien?",
+        "faqInviteAnswer" to "Copia solo el código de invitación. El enlace queda para compartir la página o instalar la app.",
+        "faqPixQuestion" to "¿Qué Pix debo usar?",
+        "faqPixAnswer" to "Usa siempre el código Pix generado por Nexora. La clave de quien recibe no aparece separada.",
+        "faqReceiptQuestion" to "¿Cuándo envío el comprobante?",
+        "faqReceiptAnswer" to "Después de la transferencia, sube la foto del comprobante en el historial para validación.",
+        "contactTitle" to "Contacto",
+        "contactBody" to "Para dudas simples o soporte, usa los contactos de abajo. Toca para copiar.",
+        "phoneContact" to "Teléfono",
+        "contactCopied" to "Contacto copiado!",
+        "downloadHint" to "También puedes abrir la página de Nexora para acceder o instalar la aplicación.",
+        "openDownloadPage" to "Abrir página",
+        "startUsing" to "EMPEZAR",
+        "skipTutorial" to "Salir del tutorial",
+        "inviteShareText" to "Entra a Nexora con mi código {code}. Accede o instala desde la página: {link}",
         "communityTitle" to "Comunidad",
         "communitySubtitle" to "Solicitudes activas para apoyar",
         "communityPixOrder" to "Pix por orden cronológico",
@@ -2945,6 +3196,28 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "tabRequest" to "Request",
         "tabProfile" to "Profile",
         "tabAdmin" to "Admin",
+        "tutorialFaq" to "Tutorial and FAQ",
+        "tutorialTitle" to "First steps",
+        "tutorialIntro" to "A short guide to use Nexora without friction.",
+        "tutorialStepPanel" to "Panel: see your liquidity, limit, level, and history in one place.",
+        "tutorialStepCommunity" to "Community: generate Pix by chronological order to support open requests.",
+        "tutorialStepProfile" to "Profile: share only your code, upload receipts, and track your fees.",
+        "faqTitle" to "Frequently Asked Questions",
+        "faqInviteQuestion" to "What do I copy to invite someone?",
+        "faqInviteAnswer" to "Copy only the invite code. The link is for sharing the page or installing the app.",
+        "faqPixQuestion" to "Which Pix should I use?",
+        "faqPixAnswer" to "Always use the Pix code generated by Nexora. The receiver key is not shown separately.",
+        "faqReceiptQuestion" to "When do I send the receipt?",
+        "faqReceiptAnswer" to "After the transfer, upload the receipt photo in history for validation.",
+        "contactTitle" to "Contact",
+        "contactBody" to "For simple questions or support, use the contacts below. Tap to copy.",
+        "phoneContact" to "Phone",
+        "contactCopied" to "Contact copied!",
+        "downloadHint" to "You can also open the Nexora page to access or install the application.",
+        "openDownloadPage" to "Open page",
+        "startUsing" to "START",
+        "skipTutorial" to "Exit tutorial",
+        "inviteShareText" to "Join Nexora with my code {code}. Access or install it from the page: {link}",
         "communityTitle" to "Community",
         "communitySubtitle" to "Active requests to support",
         "communityPixOrder" to "Pix by chronological order",

@@ -3,13 +3,19 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Outer diamond: centered inside the Android adaptive icon safe area -->
     <path
         android:fillColor="#00E060"
-        android:pathData="M54,17 L91,54 L54,91 L17,54 Z" />
+        android:pathData="M54,19 L89,54 L54,89 L19,54 Z" />
+
+    <!-- Inner diamond: balanced center cutout -->
     <path
         android:fillColor="#000000"
-        android:pathData="M54,31 L77,54 L54,77 L31,54 Z" />
+        android:pathData="M54,30 L78,54 L54,78 L30,54 Z" />
+
+    <!-- Centered N: shifted left from the previous version and balanced around x=54 -->
     <path
         android:fillColor="#00E060"
-        android:pathData="M43,36 L50,36 L65,60 L65,36 L72,36 L72,72 L65,72 L50,48 L50,72 L43,72 Z" />
+        android:pathData="M39,36 L46,36 L62,61 L62,36 L69,36 L69,72 L62,72 L46,47 L46,72 L39,72 Z" />
 </vector>
