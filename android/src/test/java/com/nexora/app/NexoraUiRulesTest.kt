@@ -42,6 +42,22 @@ class NexoraUiRulesTest {
         assertFalse(isRandomPixKey("52998224725"))
     }
 
+    @Test
+    fun birthdate_input_adds_slashes_and_converts_to_iso() {
+        assertEquals("25/05/1990", formatBirthdateInput("25051990"))
+        assertEquals("25/05/1990", formatBirthdateInput("25/05/1990"))
+        assertEquals("1990-05-25", birthdateInputToIso("25/05/1990"))
+        assertEquals(null, birthdateInputToIso("31/02/1990"))
+    }
+
+    @Test
+    fun encrypted_payload_errors_are_hidden_from_users() {
+        val message = friendlyErrorMessage("Payload criptografado invalido.")
+
+        assertFalse(message.contains("Payload", ignoreCase = true))
+        assertFalse(message.contains("criptografado", ignoreCase = true))
+    }
+
     private fun contribution(id: String, status: String, createdAt: Long) = ContributionHistory(
         id = id,
         transactionId = null,

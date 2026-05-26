@@ -10,6 +10,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,6 +48,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -181,8 +187,8 @@ class MainActivity : FragmentActivity() {
             },
         )
         val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Entrar com digital")
-            .setSubtitle("Desbloqueie sua sessao Nexora salva")
+            .setTitle(uiText("biometricTitle"))
+            .setSubtitle(uiText("biometricSubtitle"))
             .setAllowedAuthenticators(authenticators)
             .build()
         prompt.authenticate(info)
@@ -207,7 +213,7 @@ private fun NexoraApp(
         state.message?.let { message ->
             snackbarIsError = state.messageIsError
             snackbarHostState.currentSnackbarData?.dismiss()
-            snackbarHostState.showSnackbar(message)
+            snackbarHostState.showSnackbar(runtimeText(message, state.language))
             viewModel.clearMessage()
         }
     }
@@ -241,7 +247,7 @@ private fun NexoraApp(
         )
 
         if (state.loading) {
-            LoadingOverlay(state.loadingAction ?: "Aguarde")
+            LoadingOverlay(runtimeText(state.loadingAction ?: uiText("wait", state.language), state.language))
         }
 
         if (state.sessionLocked) {
@@ -298,7 +304,7 @@ private fun SessionLockOverlay(
                 fontWeight = FontWeight.Black
             )
             Text(
-                "Por segurança, sua sessão foi bloqueada devido à inatividade.",
+                uiText("sessionLockedMessage"),
                 color = NexoraMuted,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 8.dp)
@@ -326,7 +332,7 @@ private fun SessionLockOverlay(
             
             if (biometricAvailable) {
                 NexoraButton(
-                    text = "DESBLOQUEAR",
+                    text = uiText("unlock"),
                     onClick = onUnlock
                 )
             }
@@ -335,7 +341,7 @@ private fun SessionLockOverlay(
                 onClick = onLogout,
                 modifier = Modifier.padding(top = 16.dp)
             ) {
-                Text("Sair agora", color = NexoraRed)
+                Text(uiText("logoutNow"), color = NexoraRed)
             }
         }
     }
@@ -398,10 +404,7 @@ private fun AuthScreen(
     }
 
     fun validBirthdate(): Boolean {
-        if (!Regex("""\d{4}-\d{2}-\d{2}""").matches(birthdate)) {
-            return fail("birthdate", uiText("birthdateInvalid", language))
-        }
-        val parsed = runCatching { LocalDate.parse(birthdate) }.getOrNull()
+        val parsed = parseBirthdateInput(birthdate)
             ?: return fail("birthdate", uiText("birthdateInvalid", language))
         val today = LocalDate.now()
         return when {
@@ -435,25 +438,25 @@ private fun AuthScreen(
             }
         }
         AuthMode.VERIFY -> when {
-            email.isBlank() || !email.contains("@") -> fail("email", "Informe o e-mail usado no cadastro.")
-            code.length != 6 -> fail("code", "Digite o código de 6 dígitos.")
+            email.isBlank() || !email.contains("@") -> fail("email", uiText("registrationEmailRequired", language))
+            code.length != 6 -> fail("code", uiText("sixDigitCodeRequired", language))
             else -> {
                 invalidFields = emptySet()
                 true
             }
         }
         AuthMode.RECOVER_SEND -> when {
-            email.isBlank() || !email.contains("@") -> fail("email", "Informe o e-mail da conta.")
+            email.isBlank() || !email.contains("@") -> fail("email", uiText("accountEmailRequired", language))
             else -> {
                 invalidFields = emptySet()
                 true
             }
         }
         AuthMode.RECOVER_RESET -> when {
-            email.isBlank() || !email.contains("@") -> fail("email", "Informe o e-mail da conta.")
-            code.length != 6 -> fail("code", "Digite o código de 6 dígitos.")
-            newPassword.length < 8 -> fail("newPassword", "A nova senha precisa ter pelo menos 8 caracteres.")
-            confirmNewPassword != newPassword -> fail("confirmNewPassword", "As senhas não conferem.")
+            email.isBlank() || !email.contains("@") -> fail("email", uiText("accountEmailRequired", language))
+            code.length != 6 -> fail("code", uiText("sixDigitCodeRequired", language))
+            newPassword.length < 8 -> fail("newPassword", uiText("newPasswordMin", language))
+            confirmNewPassword != newPassword -> fail("confirmNewPassword", uiText("passwordsDontMatch", language))
             else -> {
                 invalidFields = emptySet()
                 true
@@ -469,7 +472,7 @@ private fun AuthScreen(
             .imePadding()
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
     ) {
         NexoraLogo()
         Spacer(Modifier.height(48.dp))
@@ -501,9 +504,10 @@ private fun AuthScreen(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 32.dp),
             textAlign = TextAlign.Start,
         )
-        LanguageSelector(language = language, onSelect = viewModel::setLanguage)
-        Spacer(Modifier.height(20.dp))
-
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+            LanguageSelector(language = language, onSelect = viewModel::setLanguage)
+        }
+        Spacer(Modifier.height(18.dp))
         NexoraPanel {
             if (mode == AuthMode.REGISTER) {
                 NexoraInput(uiText("fullName", language), name, { name = it; clearInvalid("name") }, isError = "name" in invalidFields)
@@ -516,10 +520,10 @@ private fun AuthScreen(
                     uiText("birthdate", language),
                     birthdate,
                     {
-                        birthdate = it.filter { char -> char.isDigit() || char == '-' }.take(10)
+                        birthdate = formatBirthdateInput(it)
                         clearInvalid("birthdate")
                     },
-                    placeholder = "AAAA-MM-DD",
+                    placeholder = uiText("datePlaceholder", language),
                     keyboardType = KeyboardType.Number,
                     isError = "birthdate" in invalidFields,
                 )
@@ -610,7 +614,15 @@ private fun AuthScreen(
                     if (validateAuthAction()) {
                         when (mode) {
                             AuthMode.LOGIN -> viewModel.login(cpf, password)
-                            AuthMode.REGISTER -> viewModel.register(name, email, cpf, birthdate, pixKey, password, invite.takeIf { it.isNotBlank() } )
+                            AuthMode.REGISTER -> viewModel.register(
+                                name,
+                                email,
+                                cpf,
+                                birthdateInputToIso(birthdate) ?: birthdate,
+                                pixKey,
+                                password,
+                                invite.takeIf { it.isNotBlank() },
+                            )
                             AuthMode.VERIFY -> viewModel.verifyEmail(email, code)
                             AuthMode.RECOVER_SEND -> {
                                 viewModel.recoverPassword(email)
@@ -668,8 +680,8 @@ private fun AuthScreen(
                             onBiometricLogin()
                         } else {
                             val reason = when {
-                                !state.hasSavedSession -> "A digital aparece depois do primeiro login salvo. Se tocar em Sair, a sessão salva é removida."
-                                else -> "Ative digital, face ou bloqueio de tela no aparelho para usar este acesso."
+                                !state.hasSavedSession -> uiText("biometricAfterLogin", language)
+                                else -> uiText("biometricEnableDevice", language)
                             }
                             viewModel.showValidationError(reason)
                         }
@@ -679,13 +691,13 @@ private fun AuthScreen(
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 ) {
-                    Text("ENTRAR COM DIGITAL", color = if (state.hasSavedSession && biometricAvailable) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Black)
+                    Text(uiText("biometricButton", language), color = if (state.hasSavedSession && biometricAvailable) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Black)
                 }
                 Text(
                     text = if (state.hasSavedSession) {
-                        "Use a digital para desbloquear a sessao salva."
+                        uiText("biometricSavedHelp", language)
                     } else {
-                        "Entre uma vez e feche o app sem tocar em Sair para liberar a digital."
+                        uiText("biometricFirstLoginHelp", language)
                     },
                     color = NexoraMuted,
                     fontSize = 12.sp,
@@ -694,10 +706,10 @@ private fun AuthScreen(
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     TextButton(onClick = { mode = AuthMode.VERIFY }) {
-                        Text("Verificar e-mail", color = NexoraMuted)
+                        Text(uiText("verifyEmailLink", language), color = NexoraMuted)
                     }
                     TextButton(onClick = { mode = AuthMode.RECOVER_SEND }) {
-                        Text("Esqueci a senha", color = NexoraMuted)
+                        Text(uiText("forgotPassword", language), color = NexoraMuted)
                     }
                 }
             }
@@ -708,7 +720,7 @@ private fun AuthScreen(
                     onClick = { viewModel.resendVerification(email) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Reenviar código por e-mail", color = NexoraGreen, fontWeight = FontWeight.Bold)
+                    Text(uiText("resendCodeEmail", language), color = NexoraGreen, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -718,7 +730,7 @@ private fun AuthScreen(
                     onClick = { viewModel.recoverPassword(email) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Reenviar código por e-mail", color = NexoraGreen, fontWeight = FontWeight.Bold)
+                    Text(uiText("resendCodeEmail", language), color = NexoraGreen, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -726,12 +738,12 @@ private fun AuthScreen(
         Spacer(Modifier.weight(1f))
         
         if (showServerConfig) {
-            NexoraInput("Servidor da API", server, { server = it; viewModel.updateBaseUrl(it) })
+            NexoraInput(uiText("apiServer", language), server, { server = it; viewModel.updateBaseUrl(it) })
             Spacer(Modifier.height(8.dp))
         }
         
         TextButton(onClick = { showServerConfig = !showServerConfig }) {
-            Text(if (showServerConfig) "Ocultar config" else "Configuração do servidor", color = NexoraMuted, fontSize = 12.sp)
+            Text(if (showServerConfig) uiText("hideConfig", language) else uiText("serverConfig", language), color = NexoraMuted, fontSize = 12.sp)
         }
     }
 }
@@ -763,11 +775,11 @@ private fun MainShell(state: NexoraUiState, viewModel: NexoraViewModel) {
 private fun NexoraBottomBar(state: NexoraUiState, viewModel: NexoraViewModel) {
     val profile = state.profile
     val items = buildList {
-        add(Triple(MainTab.PAINEL, "Painel", Icons.Filled.Dashboard))
-        add(Triple(MainTab.COMUNIDADE, "Comunidade", Icons.Filled.Groups))
-        add(Triple(MainTab.SOLICITAR, "Solicitar", Icons.Filled.Add))
-        add(Triple(MainTab.PERFIL, "Perfil", Icons.Filled.Person))
-        if (profile?.role in setOf("ADMIN", "SUPER_ADMIN")) add(Triple(MainTab.ADMIN, "Admin", Icons.Filled.AdminPanelSettings))
+        add(Triple(MainTab.PAINEL, uiText("tabPanel", state.language), Icons.Filled.Dashboard))
+        add(Triple(MainTab.COMUNIDADE, uiText("tabCommunity", state.language), Icons.Filled.Groups))
+        add(Triple(MainTab.SOLICITAR, uiText("tabRequest", state.language), Icons.Filled.Add))
+        add(Triple(MainTab.PERFIL, uiText("tabProfile", state.language), Icons.Filled.Person))
+        if (profile?.role in setOf("ADMIN", "SUPER_ADMIN")) add(Triple(MainTab.ADMIN, uiText("tabAdmin", state.language), Icons.Filled.AdminPanelSettings))
     }
     NavigationBar(
         containerColor = Color(0xFF0A0A0A),
@@ -782,9 +794,11 @@ private fun NexoraBottomBar(state: NexoraUiState, viewModel: NexoraViewModel) {
                 label = {
                     Text(
                         text = label,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Clip,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        textAlign = TextAlign.Center,
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
@@ -815,11 +829,17 @@ private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
             item {
-                HeaderRow(profile = profile, refreshing = state.refreshing, onRefresh = viewModel::refreshAll)
+                HeaderRow(
+                    profile = profile,
+                    refreshing = state.refreshing,
+                    onRefresh = viewModel::refreshAll,
+                    language = state.language,
+                    onLanguageSelect = viewModel::setLanguage,
+                )
             }
             item {
                 NexoraPanel(border = true) {
-                    Text("LIQUIDEZ COMUNITÁRIA", color = NexoraMuted, fontSize = 14.sp, letterSpacing = 5.sp)
+                    Text(uiText("communityLiquidity", state.language), color = NexoraMuted, fontSize = 14.sp, letterSpacing = 3.sp)
                     Text(
                         text = formatMoney(dashboard?.communityLiquidityCents ?: 0),
                         color = NexoraGreen,
@@ -829,28 +849,28 @@ private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     )
                     HorizontalDivider(Modifier.padding(vertical = 20.dp), color = Color(0xFF252525))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        StatText("Em circulação", formatMoney(dashboard?.inCirculationCents ?: 0), NexoraText)
-                        StatText("Cumprimento", String.format(Locale.getDefault(), "%.1f%%", dashboard?.completionPercent ?: 100.0), NexoraGreen)
+                        StatText(uiText("inCirculation", state.language), formatMoney(dashboard?.inCirculationCents ?: 0), NexoraText)
+                        StatText(uiText("completion", state.language), String.format(Locale.getDefault(), "%.1f%%", dashboard?.completionPercent ?: 100.0), NexoraGreen)
                     }
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-                    MetricCard("Solicitações ativas", "${dashboard?.activeRequests ?: 0}", Modifier.weight(1f))
-                    MetricCard("Operações concluídas", "${dashboard?.completedOperations ?: 0}", Modifier.weight(1f), highlight = true)
+                    MetricCard(uiText("activeRequests", state.language), "${dashboard?.activeRequests ?: 0}", Modifier.weight(1f))
+                    MetricCard(uiText("completedOperations", state.language), "${dashboard?.completedOperations ?: 0}", Modifier.weight(1f), highlight = true)
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-                    MetricCard("Usuários ativos", "${dashboard?.activeUsers ?: 0}", Modifier.weight(1f))
-                    MetricCard("Seu limite", formatMoney(dashboard?.userLimitCents ?: profile.supportLimitCents), Modifier.weight(1f), highlight = true)
+                    MetricCard(uiText("activeUsers", state.language), "${dashboard?.activeUsers ?: 0}", Modifier.weight(1f))
+                    MetricCard(uiText("yourLimit", state.language), formatMoney(dashboard?.userLimitCents ?: profile.supportLimitCents), Modifier.weight(1f), highlight = true)
                 }
             }
             item {
                 NexoraPanel {
-                    Text("Como funciona", color = NexoraGreen, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(uiText("howItWorks", state.language), color = NexoraGreen, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "A comunidade contribui com pequenos valores via Pix até completar sua solicitação. Você registra o retorno no prazo e ganha XP, buffs e maior limite.",
+                        uiText("howItWorksBody", state.language),
                         color = Color(0xFFB6B6BD),
                         fontSize = 18.sp,
                         lineHeight = 28.sp,
@@ -879,35 +899,43 @@ private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
             item {
-                ScreenTitle("Comunidade", "Solicitações ativas para apoiar", viewModel::refreshCommunity, refreshing = state.refreshing)
+                ScreenTitle(
+                    uiText("communityTitle", state.language),
+                    uiText("communitySubtitle", state.language),
+                    viewModel::refreshCommunity,
+                    refreshing = state.refreshing,
+                    language = state.language,
+                    onLanguageSelect = viewModel::setLanguage,
+                )
             }
             item {
                 NexoraPanel(border = true) {
-                    Text("Pix por ordem cronológica", color = NexoraGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(uiText("communityPixOrder", state.language), color = NexoraGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        NexoraInput("Valor total", batchAmount, { batchAmount = it }, Modifier.weight(1f), "R$ 0,00", KeyboardType.Decimal)
+                        NexoraInput(uiText("totalValue", state.language), batchAmount, { batchAmount = it }, Modifier.weight(1f), "R$ 0,00", KeyboardType.Decimal)
                         Button(
                             onClick = {
                                 val cents = parseMoneyToCents(batchAmount)
                                 when {
-                                    cents == null || cents <= 0 -> viewModel.showValidationError("Informe um valor valido para distribuir.")
-                                    state.community.isEmpty() -> viewModel.showValidationError("Não há solicitações abertas de outras pessoas no momento.")
+                                    cents == null || cents <= 0 -> viewModel.showValidationError(uiText("enterDistributionValue", state.language))
+                                    state.community.isEmpty() -> viewModel.showValidationError(uiText("noOpenRequests", state.language))
                                     else -> viewModel.createContributionBatch(cents)
                                 }
                             },
                             enabled = !state.loading,
                             colors = ButtonDefaults.buttonColors(containerColor = NexoraGreen, contentColor = NexoraBlack),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.width(96.dp).height(56.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
                         ) {
-                            Text("GERAR", fontWeight = FontWeight.Black)
+                            Text(uiText("generate", state.language), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
                         }
                     }
                 }
             }
             if (state.community.isEmpty()) {
-                item { EmptyState("Comunidade estável", "Nenhuma solicitação de outros usuários ativa no momento") }
+                item { EmptyState(uiText("communityEmptyTitle", state.language), uiText("communityEmptySubtitle", state.language)) }
             } else {
                 items(state.community, key = { it.id }) { request ->
                     CommunityRequestCard(request = request)
@@ -932,44 +960,49 @@ private fun RequestScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
             .imePadding()
             .padding(24.dp),
     ) {
-        ScreenTitle("Solicitar Apoio", "A comunidade contribui via Pix até completar o valor")
+        ScreenTitle(
+            uiText("requestTitle", state.language),
+            uiText("requestSubtitle", state.language),
+            language = state.language,
+            onLanguageSelect = viewModel::setLanguage,
+        )
         NexoraPanel(border = true, background = NexoraDarkGreen) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("SEU LIMITE", color = NexoraGreen, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+                Text(uiText("yourLimitUpper", state.language), color = NexoraGreen, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
                 Text(formatMoney(profile.supportLimitCents), color = NexoraGreen, fontSize = 30.sp, fontWeight = FontWeight.Black)
             }
         }
         if (!eligible) {
             Spacer(Modifier.height(12.dp))
-            MessageStrip("Solicitação liberada a partir do Nível 2 com 100 XP e limite disponível.")
+            MessageStrip(uiText("requestLocked", state.language))
         }
         Spacer(Modifier.height(22.dp))
-        NexoraInput("Valor solicitado", amount, { amount = it; if (invalidField == "amount") invalidField = null }, keyboardType = KeyboardType.Decimal, placeholder = "R$ 0,00", isError = invalidField == "amount")
+        NexoraInput(uiText("requestedValue", state.language), amount, { amount = it; if (invalidField == "amount") invalidField = null }, keyboardType = KeyboardType.Decimal, placeholder = "R$ 0,00", isError = invalidField == "amount")
         Spacer(Modifier.height(14.dp))
-        NexoraInput("Prazo para retorno (dias)", days, { days = it; if (invalidField == "days") invalidField = null }, keyboardType = KeyboardType.Number, isError = invalidField == "days")
+        NexoraInput(uiText("returnDeadlineDays", state.language), days, { days = it; if (invalidField == "days") invalidField = null }, keyboardType = KeyboardType.Number, isError = invalidField == "days")
         Spacer(Modifier.height(14.dp))
-        NexoraInput("Descrição opcional", description, { description = it }, minLines = 4)
+        NexoraInput(uiText("optionalDescription", state.language), description, { description = it }, minLines = 4)
         Spacer(Modifier.height(22.dp))
-        NexoraButton("SOLICITAR APOIO", loading = state.loading) {
+        NexoraButton(uiText("requestSupportButton", state.language), loading = state.loading) {
             val cents = parseMoneyToCents(amount)
             val dueDays = days.toIntOrNull()
             when {
-                !eligible -> viewModel.showValidationError("Você ainda não pode solicitar: precisa estar no Nível 2 com 100 XP.")
+                !eligible -> viewModel.showValidationError(uiText("requestLockedShort", state.language))
                 cents == null || cents <= 0 -> {
                     invalidField = "amount"
-                    viewModel.showValidationError("Informe um valor válido.")
+                    viewModel.showValidationError(uiText("enterValidValue", state.language))
                 }
                 cents > profile.supportLimitCents -> {
                     invalidField = "amount"
-                    viewModel.showValidationError("Valor acima do seu limite atual.")
+                    viewModel.showValidationError(uiText("valueAboveLimit", state.language))
                 }
                 dueDays == null -> {
                     invalidField = "days"
-                    viewModel.showValidationError("Informe o prazo em dias.")
+                    viewModel.showValidationError(uiText("enterDeadlineDays", state.language))
                 }
                 dueDays !in 1..30 -> {
                     invalidField = "days"
-                    viewModel.showValidationError("O prazo precisa ficar entre 1 e 30 dias.")
+                    viewModel.showValidationError(uiText("deadlineRange", state.language))
                 }
                 else -> {
                     invalidField = null
@@ -993,7 +1026,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, inviteText)
         }
-        context.startActivity(Intent.createChooser(intent, "Compartilhar convite"))
+        context.startActivity(Intent.createChooser(intent, uiText("shareInvite", state.language)))
     }
     var historyFilter by rememberSaveable { mutableStateOf("ALL") }
     val filteredHistory = remember(state.contributionHistory, historyFilter) {
@@ -1006,14 +1039,14 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            ScreenTitle("Perfil", profile.publicId, viewModel::refreshProfileAndMine, refreshing = state.refreshing)
-        }
-        item {
-            NexoraPanel {
-                Text(uiText("language", state.language), color = NexoraMuted, fontSize = 13.sp, letterSpacing = 1.sp)
-                Spacer(Modifier.height(10.dp))
-                LanguageSelector(language = state.language, onSelect = viewModel::setLanguage)
-            }
+            ScreenTitle(
+                uiText("profileTitle", state.language),
+                profile.publicId,
+                viewModel::refreshProfileAndMine,
+                refreshing = state.refreshing,
+                language = state.language,
+                onLanguageSelect = viewModel::setLanguage,
+            )
         }
         item {
             NexoraPanel {
@@ -1021,7 +1054,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                 Text(profile.email, color = NexoraMuted, fontSize = 14.sp)
                 Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-                    Text("NÍVEL", color = NexoraMuted, letterSpacing = 4.sp)
+                    Text(uiText("level", state.language).uppercase(), color = NexoraMuted, letterSpacing = 2.sp)
                     Spacer(Modifier.width(12.dp))
                     Text("${profile.level}", color = NexoraGreen, fontSize = 52.sp, fontWeight = FontWeight.Black)
                 }
@@ -1040,20 +1073,16 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                MetricCard("BUFF", formatBuff(profile.buffBps), Modifier.weight(1f), highlight = true)
-                MetricCard("LIMITE", formatMoney(profile.supportLimitCents), Modifier.weight(1f), highlight = true)
-                MetricCard("CONVITES", "${profile.invitedCount}", Modifier.weight(1f), highlight = true)
-            }
+            ProfileStatsPanel(profile = profile, language = state.language)
         }
         item {
             NexoraPanel {
-                LabelValue("Chave Pix aleatória", profile.pixKeyMasked, onCopy = {
+                LabelValue(uiText("pixKey", state.language), profile.pixKeyMasked, onCopy = {
                     clipboard.setText(AnnotatedString(profile.pixKeyMasked))
-                    Toast.makeText(context, "Chave Pix copiada!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, uiText("pixCopied", state.language), Toast.LENGTH_SHORT).show()
                 })
                 Spacer(Modifier.height(18.dp))
-                Text("Código de convite", color = NexoraMuted, fontSize = 16.sp, letterSpacing = 2.sp)
+                Text(uiText("inviteCode", state.language), color = NexoraMuted, fontSize = 16.sp, letterSpacing = 1.sp)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1071,16 +1100,16 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     OutlinedButton(
                         onClick = {
                             clipboard.setText(AnnotatedString(inviteLink))
-                            Toast.makeText(context, "Código de convite copiado!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, uiText("inviteCopied", state.language), Toast.LENGTH_SHORT).show()
                         },
                         border = BorderStroke(1.dp, NexoraGreen),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f).height(48.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp)
                     ) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copiar link", tint = NexoraGreen, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.ContentCopy, contentDescription = uiText("copyLink", state.language), tint = NexoraGreen, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Copiar", color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(uiText("copy", state.language), color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                     Button(
                         onClick = { shareInvite() },
@@ -1089,32 +1118,32 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                         modifier = Modifier.weight(1f).height(48.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp)
                     ) {
-                        Icon(Icons.Filled.Share, contentDescription = "Compartilhar convite", modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.Share, contentDescription = uiText("shareInvite", state.language), modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Compartilhar", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                        Text(uiText("share", state.language), fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                     }
                 }
             }
         }
         item {
             NexoraPanel {
-                LabelValue("Taxa administrativa acumulada", "${formatMoney(profile.adminFeeDueCents)} / ${formatMoney(profile.adminFeeLimitCents)}")
+                LabelValue(uiText("adminFeeAccumulated", state.language), "${formatMoney(profile.adminFeeDueCents)} / ${formatMoney(profile.adminFeeLimitCents)}")
                 profile.adminPixKey?.let {
                     Spacer(Modifier.height(10.dp))
-                    Text("Envie a taxa para o Pix do admin e aguarde a baixa administrativa.", color = NexoraMuted, fontSize = 14.sp)
+                    Text(uiText("sendAdminFeeHelp", state.language), color = NexoraMuted, fontSize = 14.sp)
                     Spacer(Modifier.height(10.dp))
-                    LabelValue("Pix da taxa administrativa", it, onCopy = {
+                    LabelValue(uiText("adminFeePix", state.language), it, onCopy = {
                         clipboard.setText(AnnotatedString(it))
-                        Toast.makeText(context, "Chave Pix copiada!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, uiText("pixCopied", state.language), Toast.LENGTH_SHORT).show()
                     })
-                } ?: Text("Sem taxa pendente para envio.", color = NexoraMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
+                } ?: Text(uiText("noPendingFee", state.language), color = NexoraMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
                 }
         }
         item {
-            Text("Minhas solicitações", color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(uiText("myRequests", state.language), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
         if (state.myRequests.isEmpty()) {
-            item { EmptyState("Sem solicitações", "Quando criar uma solicitação, ela aparece aqui") }
+            item { EmptyState(uiText("noRequestsTitle", state.language), uiText("noRequestsSubtitle", state.language)) }
         } else {
             items(state.myRequests, key = { it.id }) { request ->
                 CompactRequestCard(request)
@@ -1122,12 +1151,16 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         }
         item {
             Column {
-                Text("Histórico de transações", color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(uiText("transactionHistory", state.language), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("ACTIVE" to "Ativas", "CANCELLED" to "Canceladas", "ALL" to "Todas").forEach { (id, label) ->
+                    listOf(
+                        "ACTIVE" to uiText("active", state.language),
+                        "CANCELLED" to uiText("cancelled", state.language),
+                        "ALL" to uiText("all", state.language),
+                    ).forEach { (id, label) ->
                         FilterChip(
                             selected = historyFilter == id,
                             onClick = { historyFilter = id },
@@ -1149,7 +1182,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
             }
         }
         if (filteredHistory.isEmpty()) {
-            item { EmptyState("Sem transações", "Nenhuma transação encontrada nesta categoria") }
+            item { EmptyState(uiText("noTransactionsTitle", state.language), uiText("noTransactionsSubtitle", state.language)) }
         } else {
             items(filteredHistory, key = { it.id }) { contribution ->
                 ContributionHistoryCard(contribution, viewModel)
@@ -1162,7 +1195,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
             ) {
-                Text("Sair", color = NexoraRed)
+                Text(uiText("logout", state.language), color = NexoraRed)
             }
         }
     }
@@ -1250,7 +1283,14 @@ private fun AdminScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
             item {
-                ScreenTitle("Admin Nexora", "Painel de controle dos fundadores", { viewModel.refreshAdmin() }, refreshing = state.refreshing)
+                ScreenTitle(
+                    uiText("adminTitle", state.language),
+                    uiText("adminSubtitle", state.language),
+                    { viewModel.refreshAdmin() },
+                    refreshing = state.refreshing,
+                    language = state.language,
+                    onLanguageSelect = viewModel::setLanguage,
+                )
                 ScrollableTabRow(
                     selectedTabIndex = section,
                     containerColor = NexoraBlack,
@@ -1265,13 +1305,13 @@ private fun AdminScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     divider = {}
                 ) {
                     Tab(selected = section == 0, onClick = { section = 0 }) {
-                        Text("Usuários", modifier = Modifier.padding(16.dp), color = if (section == 0) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Bold)
+                        Text(uiText("adminUsers", state.language), modifier = Modifier.padding(16.dp), color = if (section == 0) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Bold)
                     }
                     Tab(selected = section == 1, onClick = { section = 1 }) {
-                        Text("Solicitações", modifier = Modifier.padding(16.dp), color = if (section == 1) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Bold)
+                        Text(uiText("adminRequests", state.language), modifier = Modifier.padding(16.dp), color = if (section == 1) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Bold)
                     }
                     Tab(selected = section == 2, onClick = { section = 2 }) {
-                        Text("Apoios", modifier = Modifier.padding(16.dp), color = if (section == 2) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Bold)
+                        Text(uiText("adminContributions", state.language), modifier = Modifier.padding(16.dp), color = if (section == 2) NexoraGreen else NexoraMuted, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1289,23 +1329,24 @@ private fun AdminScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     toDate = toDate,
                     onToDateChange = { toDate = it },
                     showReceipt = section == 2,
+                    language = state.language,
                 )
             }
             when (section) {
                 0 -> {
-                    if (filteredUsers.isEmpty()) item { EmptyState("Sem usuários", "Nenhum usuário encontrado com os filtros atuais") }
+                    if (filteredUsers.isEmpty()) item { EmptyState(uiText("noUsersTitle", state.language), uiText("noUsersSubtitle", state.language)) }
                     items(filteredUsers, key = { it.id }) { user ->
                         AdminUserCard(user, viewModel, onDetails = { selectedUser = user })
                     }
                 }
                 1 -> {
-                    if (filteredRequests.isEmpty()) item { EmptyState("Sem solicitações", "Nenhuma solicitação encontrada com os filtros atuais") }
+                    if (filteredRequests.isEmpty()) item { EmptyState(uiText("noAdminRequestsTitle", state.language), uiText("noAdminRequestsSubtitle", state.language)) }
                     items(filteredRequests, key = { it.id }) { request ->
                         AdminRequestCard(request, viewModel, onDetails = { selectedRequest = request })
                     }
                 }
                 2 -> {
-                    if (filteredContributions.isEmpty()) item { EmptyState("Sem apoios", "Nenhum apoio encontrado com os filtros atuais") }
+                    if (filteredContributions.isEmpty()) item { EmptyState(uiText("noContributionsTitle", state.language), uiText("noContributionsSubtitle", state.language)) }
                     items(filteredContributions, key = { it.id }) { contribution ->
                         AdminContributionCard(contribution, viewModel, onDetails = { selectedContribution = contribution })
                     }
@@ -1370,18 +1411,19 @@ private fun AdminFilterPanel(
     toDate: String,
     onToDateChange: (String) -> Unit,
     showReceipt: Boolean,
+    language: AppLanguage,
 ) {
     NexoraPanel {
-        FilterInput("Buscar...", query, onQueryChange, Modifier.fillMaxWidth())
+        FilterInput(uiText("search", language), query, onQueryChange, Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
-        Text("Status", color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
+        Text(uiText("status", language), color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             statusOptions.forEach { status ->
                 FilterChip(
                     selected = statusFilter == status,
                     onClick = { onStatusChange(status) },
-                    label = { Text(if (status == "ALL") "Todos" else statusLabel(status), fontSize = 11.sp) },
+                    label = { Text(if (status == "ALL") uiText("all", language) else statusLabel(status), fontSize = 11.sp) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = NexoraDarkGreen,
                         selectedLabelColor = NexoraGreen,
@@ -1398,10 +1440,14 @@ private fun AdminFilterPanel(
         }
         if (showReceipt) {
             Spacer(Modifier.height(10.dp))
-            Text("Comprovantes", color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
+            Text(uiText("receipts", language), color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("ALL" to "Todos", "complete" to "Completos", "missing" to "Pendentes").forEach { (value, label) ->
+                listOf(
+                    "ALL" to uiText("all", language),
+                    "complete" to uiText("completePlural", language),
+                    "missing" to uiText("pendingPlural", language),
+                ).forEach { (value, label) ->
                     FilterChip(
                         selected = receiptFilter == value,
                         onClick = { onReceiptChange(value) },
@@ -1422,11 +1468,11 @@ private fun AdminFilterPanel(
             }
         }
         Spacer(Modifier.height(12.dp))
-        Text("Período (AAAA-MM-DD)", color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
+        Text(uiText("period", language), color = NexoraMuted, fontSize = 12.sp, letterSpacing = 1.sp)
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            FilterInput("Desde", fromDate, onFromDateChange, Modifier.weight(1f))
-            FilterInput("Hasta", toDate, onToDateChange, Modifier.weight(1f))
+            FilterInput(uiText("from", language), fromDate, onFromDateChange, Modifier.weight(1f))
+            FilterInput(uiText("to", language), toDate, onToDateChange, Modifier.weight(1f))
         }
     }
 }
@@ -1441,29 +1487,29 @@ private fun DetailAction(onClick: () -> Unit) {
         contentPadding = PaddingValues(0.dp),
         modifier = Modifier.size(width = 58.dp, height = 46.dp),
     ) {
-        Icon(Icons.Filled.Visibility, contentDescription = "Ver Detalhes", tint = NexoraGreen, modifier = Modifier.size(20.dp))
+        Icon(Icons.Filled.Visibility, contentDescription = uiText("viewDetails"), tint = NexoraGreen, modifier = Modifier.size(20.dp))
     }
 }
 
 @Composable
 private fun AdminUserDetailDialog(user: AdminUser, onDismiss: () -> Unit) {
-    DetailDialog(title = user.name, subtitle = "Dados completos do usuário", onDismiss = onDismiss) {
+    DetailDialog(title = user.name, subtitle = uiText("fullUserData"), onDismiss = onDismiss) {
         DetailLine("Public ID", user.publicId)
         DetailLine("E-mail", user.email)
         DetailLine("CPF", user.cpf)
-        DetailLine("Chave Pix aleatória", user.pixKey)
-        DetailLine("Status", statusLabel(user.status))
-        DetailLine("Função", user.role)
-        DetailLine("Nível", "${user.level}")
+        DetailLine(uiText("pixKey"), user.pixKey)
+        DetailLine(uiText("status"), statusLabel(user.status))
+        DetailLine(uiText("role"), roleLabel(user.role))
+        DetailLine(uiText("level"), "${user.level}")
         DetailLine("XP", "${user.xp}")
-        DetailLine("Buff", formatBuff(user.buffBps))
-        DetailLine("Limite", formatMoney(user.supportLimitCents))
-        DetailLine("Taxa acumulada", "${formatMoney(user.adminFeeDueCents)} / ${formatMoney(user.adminFeeLimitCents)}")
-        DetailLine("Pix aleatório do admin", user.adminPixKey ?: "-")
-        DetailLine("Convite", user.inviteCode)
-        DetailLine("Convidado por", user.invitedByPublicId ?: "-")
-        DetailLine("Convidados", "${user.invitedCount}")
-        DetailLine("Criado em", formatTimestamp(user.createdAt))
+        DetailLine(uiText("buff"), formatBuff(user.buffBps))
+        DetailLine(uiText("limit"), formatMoney(user.supportLimitCents))
+        DetailLine(uiText("accumulatedFee"), "${formatMoney(user.adminFeeDueCents)} / ${formatMoney(user.adminFeeLimitCents)}")
+        DetailLine(uiText("adminRandomPix"), user.adminPixKey ?: "-")
+        DetailLine(uiText("invite"), user.inviteCode)
+        DetailLine(uiText("invitedBy"), user.invitedByPublicId ?: "-")
+        DetailLine(uiText("invitedUsers"), "${user.invitedCount}")
+        DetailLine(uiText("createdAt"), formatTimestamp(user.createdAt))
     }
 }
 
@@ -1474,22 +1520,22 @@ private fun AdminRequestDetailDialog(
     onContributionSelected: (AdminContribution) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    DetailDialog(title = request.publicCode, subtitle = "Detalhes da solicitação", onDismiss = onDismiss) {
-        DetailLine("Solicitante", request.requesterName)
+    DetailDialog(title = request.publicCode, subtitle = uiText("requestDetails"), onDismiss = onDismiss) {
+        DetailLine(uiText("requester"), request.requesterName)
         DetailLine("Public ID", request.requesterPublicId)
         DetailLine("E-mail", request.requesterEmail)
         DetailLine("CPF", request.requesterCpf)
-        DetailLine("Chave Pix aleatória", request.requesterPixKey)
-        DetailLine("Status", statusLabel(request.status))
-        DetailLine("Valor", "${formatMoney(request.fundedCents)} / ${formatMoney(request.amountCents)}")
-        DetailLine("Taxa administrativa", formatMoney(request.adminFeeCents))
-        DetailLine("Prazo", "${request.dueDays} dias")
-        DetailLine("Criada em", formatTimestamp(request.createdAt))
-        DetailLine("Descrição", request.description ?: "-")
+        DetailLine(uiText("pixKey"), request.requesterPixKey)
+        DetailLine(uiText("status"), statusLabel(request.status))
+        DetailLine(uiText("value"), "${formatMoney(request.fundedCents)} / ${formatMoney(request.amountCents)}")
+        DetailLine(uiText("adminFee"), formatMoney(request.adminFeeCents))
+        DetailLine(uiText("deadline"), formatDays(request.dueDays))
+        DetailLine(uiText("createdAt"), formatTimestamp(request.createdAt))
+        DetailLine(uiText("description"), request.description ?: "-")
         Spacer(Modifier.height(10.dp))
-        Text("Apoios vinculados", color = NexoraGreen, fontWeight = FontWeight.Bold)
+        Text(uiText("linkedContributions"), color = NexoraGreen, fontWeight = FontWeight.Bold)
         if (contributions.isEmpty()) {
-            Text("Nenhum apoio para esta solicitação.", color = NexoraMuted, fontSize = 13.sp)
+            Text(uiText("noLinkedContributions"), color = NexoraMuted, fontSize = 13.sp)
         } else {
             contributions.forEach { contribution ->
                 TextButton(onClick = { onContributionSelected(contribution) }, modifier = Modifier.fillMaxWidth()) {
@@ -1507,43 +1553,39 @@ private fun AdminRequestDetailDialog(
 
 @Composable
 private fun AdminContributionDetailDialog(contribution: AdminContribution, onDismiss: () -> Unit) {
-    DetailDialog(title = contribution.requestPublicCode, subtitle = "Detalhes do apoio Pix", onDismiss = onDismiss) {
-        DetailLine("Apoio", contribution.id)
-        DetailLine("Solicitação", "${contribution.requestPublicCode} (${statusLabel(contribution.requestStatus)})")
-        DetailLine("Valor", formatMoney(contribution.amountCents))
-        DetailLine("ID da transação", contribution.transactionId ?: "-")
-        DetailLine("Status", statusLabel(contribution.status))
-        DetailLine("Criado em", formatTimestamp(contribution.createdAt))
-        DetailLine("Doador", "${contribution.donorName.ifBlank { contribution.donorPublicId }} · ${contribution.donorEmail}")
-        DetailLine("Recebedor", "${contribution.receiverName.ifBlank { contribution.receiverPublicId }} · ${contribution.receiverEmail}")
+    DetailDialog(title = contribution.requestPublicCode, subtitle = uiText("pixSupportDetails"), onDismiss = onDismiss) {
+        DetailLine(uiText("support"), contribution.id)
+        DetailLine(uiText("request"), "${contribution.requestPublicCode} (${statusLabel(contribution.requestStatus)})")
+        DetailLine(uiText("value"), formatMoney(contribution.amountCents))
+        DetailLine(uiText("transactionId"), contribution.transactionId ?: "-")
+        DetailLine(uiText("status"), statusLabel(contribution.status))
+        DetailLine(uiText("createdAt"), formatTimestamp(contribution.createdAt))
+        DetailLine(uiText("donor"), "${contribution.donorName.ifBlank { contribution.donorPublicId }} · ${contribution.donorEmail}")
+        DetailLine(uiText("receiver"), "${contribution.receiverName.ifBlank { contribution.receiverPublicId }} · ${contribution.receiverEmail}")
         
         contribution.ocrComparisonResult?.let { result ->
             Spacer(Modifier.height(16.dp))
-            OCRStatusSection(result, contribution.ocrComparisonNotes, contribution.evidenceComplete)
+            OCRStatusSection(result, contribution.ocrComparisonNotes, contribution.hasSenderReceipt, contribution.hasReceiverReceipt)
         } ?: run {
             Spacer(Modifier.height(16.dp))
-            OCRStatusSection(null, null, contribution.evidenceComplete)
+            OCRStatusSection(null, null, contribution.hasSenderReceipt, contribution.hasReceiverReceipt)
         }
 
         Spacer(Modifier.height(16.dp))
         ReceiptPreview(
-            title = "Comprovante do Doador",
+            title = uiText("donorReceipt"),
             date = contribution.senderReceiptDate,
             submittedAt = contribution.senderReceiptSubmittedAt,
-            hash = contribution.senderReceiptHash,
             imageBase64 = contribution.senderReceiptImageBase64,
-            ocrId = contribution.senderOcrTransactionId,
             ocrAmount = contribution.senderOcrAmountCents,
             ocrConfidence = contribution.senderOcrConfidence,
         )
         Spacer(Modifier.height(12.dp))
         ReceiptPreview(
-            title = "Comprovante do Recebedor",
+            title = uiText("receiverReceipt"),
             date = contribution.receiverReceiptDate,
             submittedAt = contribution.receiverReceiptSubmittedAt,
-            hash = contribution.receiverReceiptHash,
             imageBase64 = contribution.receiverReceiptImageBase64,
-            ocrId = contribution.receiverOcrTransactionId,
             ocrAmount = contribution.receiverOcrAmountCents,
             ocrConfidence = contribution.receiverOcrConfidence,
         )
@@ -1551,13 +1593,30 @@ private fun AdminContributionDetailDialog(contribution: AdminContribution, onDis
 }
 
 @Composable
-private fun OCRStatusSection(result: String?, notes: String?, evidenceComplete: Boolean) {
+private fun OCRStatusSection(result: String?, notes: String?, hasSenderReceipt: Boolean, hasReceiverReceipt: Boolean) {
+    val evidenceComplete = hasSenderReceipt && hasReceiverReceipt
+    val statusKey = when {
+        !hasSenderReceipt && !hasReceiverReceipt -> "statusNoReceipts"
+        hasSenderReceipt && !hasReceiverReceipt -> "statusWaitingReceiverPhoto"
+        !hasSenderReceipt && hasReceiverReceipt -> "statusWaitingDonorPhoto"
+        result?.uppercase() == "MATCH" -> "statusMatch"
+        result?.uppercase() == "NO_MATCH" || result?.uppercase() == "MISMATCH" -> "statusMismatch"
+        result?.uppercase() == "PENDING" -> "statusReview"
+        else -> "statusAnalyzing"
+    }
+    val helpKey = when {
+        !hasSenderReceipt && !hasReceiverReceipt -> "statusNoReceiptsHelp"
+        hasSenderReceipt && !hasReceiverReceipt -> "statusWaitingReceiverHelp"
+        !hasSenderReceipt && hasReceiverReceipt -> "statusWaitingDonorHelp"
+        !evidenceComplete -> "statusWaitingBothHelp"
+        else -> null
+    }
     val (color, icon, label) = when {
-        !evidenceComplete -> Triple(NexoraMuted, Icons.Filled.Info, "AGUARDANDO SEGUNDA FOTO")
-        result?.uppercase() == "MATCH" -> Triple(NexoraGreen, Icons.Filled.CheckCircle, "SISTEMA: COINCIDÊNCIA TOTAL")
-        result?.uppercase() == "NO_MATCH" || result?.uppercase() == "MISMATCH" -> Triple(NexoraRed, Icons.Filled.Warning, "SISTEMA: DIVERGÊNCIA ENCONTRADA")
-        result?.uppercase() == "PENDING" -> Triple(Color.Yellow, Icons.Filled.Info, "SISTEMA: REVISÃO MANUAL")
-        else -> Triple(NexoraMuted, Icons.Filled.Info, result ?: "ANÁLISE EM CURSO")
+        !evidenceComplete -> Triple(NexoraMuted, Icons.Filled.Info, uiText(statusKey))
+        result?.uppercase() == "MATCH" -> Triple(NexoraGreen, Icons.Filled.CheckCircle, uiText(statusKey))
+        result?.uppercase() == "NO_MATCH" || result?.uppercase() == "MISMATCH" -> Triple(NexoraRed, Icons.Filled.Warning, uiText(statusKey))
+        result?.uppercase() == "PENDING" -> Triple(Color.Yellow, Icons.Filled.Info, uiText(statusKey))
+        else -> Triple(NexoraMuted, Icons.Filled.Info, uiText(statusKey))
     }
 
     NexoraPanel(background = color.copy(alpha = 0.1f), border = true) {
@@ -1570,9 +1629,9 @@ private fun OCRStatusSection(result: String?, notes: String?, evidenceComplete: 
             Spacer(Modifier.height(4.dp))
             Text(it, color = NexoraText.copy(alpha = 0.8f), fontSize = 13.sp)
         }
-        if (!evidenceComplete) {
+        helpKey?.let {
             Spacer(Modifier.height(4.dp))
-            Text("O sistema só pode comparar os dados quando ambos os comprovantes forem enviados.", color = NexoraMuted, fontSize = 12.sp)
+            Text(uiText(it), color = NexoraMuted, fontSize = 12.sp)
         }
     }
 }
@@ -1583,7 +1642,7 @@ private fun DetailDialog(title: String, subtitle: String, onDismiss: () -> Unit,
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Fechar", color = NexoraGreen, fontWeight = FontWeight.Bold)
+                Text(uiText("close"), color = NexoraGreen, fontWeight = FontWeight.Bold)
             }
         },
         containerColor = NexoraCard,
@@ -1614,9 +1673,7 @@ private fun ReceiptPreview(
     title: String,
     date: String?,
     submittedAt: Long?,
-    hash: String?,
     imageBase64: String?,
-    ocrId: String? = null,
     ocrAmount: Long? = null,
     ocrConfidence: String? = null
 ) {
@@ -1662,26 +1719,27 @@ private fun ReceiptPreview(
                 modifier = Modifier.fillMaxWidth().height(140.dp).background(NexoraField, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Sem foto anexada", color = NexoraMuted)
+                Text(uiText("noPhotoAttached"), color = NexoraMuted)
             }
         }
         
-        if (ocrId != null || ocrAmount != null) {
+        if (ocrAmount != null || ocrConfidence != null) {
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth().background(NexoraBlack.copy(alpha = 0.3f), RoundedCornerShape(4.dp)).padding(8.dp)) {
                 Column {
-                    Text("Lido pelo Sistema (OCR)", color = NexoraGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    ocrId?.let { Text("ID: $it", color = NexoraText, fontSize = 12.sp) }
-                    ocrAmount?.let { Text("Valor: ${formatMoney(it)}", color = NexoraText, fontSize = 12.sp) }
-                    ocrConfidence?.let { Text("Confiança: $it", color = NexoraMuted, fontSize = 11.sp) }
+                    Text(uiText("autoRead"), color = NexoraGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    ocrAmount?.let { Text("${uiText("receiptAmount")}: ${formatMoney(it)}", color = NexoraText, fontSize = 12.sp) }
+                    ocrConfidence?.let { Text("${uiText("ocrConfidence")}: $it", color = NexoraMuted, fontSize = 11.sp) }
                 }
             }
         }
 
         Spacer(Modifier.height(8.dp))
-        DetailLine("Data no Comprovante", date ?: "-")
-        DetailLine("Enviado em", submittedAt?.let { formatTimestamp(it) } ?: "-")
-        DetailLine("Hash SHA-256", hash?.take(16)?.let { "$it..." } ?: "-")
+        if (imageBase64 != null) {
+            DetailLine(uiText("receiptDate"), date ?: "-")
+            DetailLine(uiText("sentAt"), submittedAt?.let { formatTimestamp(it) } ?: "-")
+            DetailLine(uiText("receiptIntegrityOk"), "OK")
+        }
     }
 
     if (showFullScreen && imageBase64 != null) {
@@ -1740,7 +1798,7 @@ private fun FullScreenImageDialog(imageBase64: String, onDismiss: () -> Unit) {
                     .padding(16.dp)
                     .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
             ) {
-                Icon(Icons.Filled.Close, contentDescription = "Fechar", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = uiText("close"), tint = Color.White)
             }
         }
     }
@@ -1764,15 +1822,21 @@ private fun downloadImage(context: android.content.Context, base64: String, file
             context.contentResolver.openOutputStream(it)?.use { stream ->
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
             }
-            Toast.makeText(context, "Imagem salva na galeria!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, uiText("imageSaved"), Toast.LENGTH_SHORT).show()
         } ?: throw Exception("Failed to create URI")
     }.onFailure {
-        Toast.makeText(context, "Erro ao salvar imagem: ${it.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "${uiText("imageSaveError")}: ${it.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
 @Composable
-private fun HeaderRow(profile: Profile, refreshing: Boolean, onRefresh: () -> Unit) {
+private fun HeaderRow(
+    profile: Profile,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    language: AppLanguage,
+    onLanguageSelect: (AppLanguage) -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1780,18 +1844,12 @@ private fun HeaderRow(profile: Profile, refreshing: Boolean, onRefresh: () -> Un
             verticalAlignment = Alignment.Top,
         ) {
             NexoraLogo(compact = true)
-            IconButton(
-                onClick = onRefresh,
-                enabled = !refreshing,
-            ) {
-                if (refreshing) {
-                    CircularProgressIndicator(color = NexoraGreen, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Atualizar", tint = NexoraMuted)
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                LanguageSelector(language = language, onSelect = onLanguageSelect)
+                RefreshIconButton(refreshing = refreshing, onRefresh = onRefresh, tint = NexoraMuted)
             }
         }
-        Text("Karma que conecta pessoas", color = NexoraMuted, fontSize = 14.sp, letterSpacing = 2.sp)
+        Text(uiText("tagline"), color = NexoraMuted, fontSize = 14.sp, letterSpacing = 1.sp)
         Spacer(Modifier.height(14.dp))
         Row(
             modifier = Modifier
@@ -1802,36 +1860,59 @@ private fun HeaderRow(profile: Profile, refreshing: Boolean, onRefresh: () -> Un
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Lv ${profile.level}", color = NexoraGreen, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                Text(profile.name, color = NexoraText, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${uiText("levelShort")} ${profile.level}", color = NexoraGreen, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text(profile.name, color = NexoraText, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Clip)
             }
-            if (refreshing) Text("Atualizando", color = NexoraGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun ScreenTitle(title: String, subtitle: String, onRefresh: (() -> Unit)? = null, refreshing: Boolean = false) {
+private fun ScreenTitle(
+    title: String,
+    subtitle: String,
+    onRefresh: (() -> Unit)? = null,
+    refreshing: Boolean = false,
+    language: AppLanguage? = null,
+    onLanguageSelect: ((AppLanguage) -> Unit)? = null,
+) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = NexoraText, fontSize = 32.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(title, color = NexoraText, fontSize = 32.sp, fontWeight = FontWeight.Black, maxLines = 3, overflow = TextOverflow.Clip)
             Text(subtitle, color = NexoraMuted, fontSize = 18.sp)
         }
-        onRefresh?.let {
-            TextButton(
-                onClick = it,
-                enabled = !refreshing,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                if (refreshing) {
-                    CircularProgressIndicator(color = NexoraGreen, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Atualizando", color = NexoraGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                } else {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Atualizar", tint = NexoraGreen)
-                }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (language != null && onLanguageSelect != null) {
+                LanguageSelector(language = language, onSelect = onLanguageSelect)
+            }
+            onRefresh?.let {
+                RefreshIconButton(refreshing = refreshing, onRefresh = it, tint = NexoraGreen)
             }
         }
+    }
+}
+
+@Composable
+private fun RefreshIconButton(refreshing: Boolean, onRefresh: () -> Unit, tint: Color) {
+    val rotation = if (refreshing) {
+        val transition = rememberInfiniteTransition(label = "refresh")
+        val angle by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(animation = tween(durationMillis = 750, easing = LinearEasing)),
+            label = "refreshAngle",
+        )
+        angle
+    } else {
+        0f
+    }
+    IconButton(onClick = onRefresh, enabled = !refreshing) {
+        Icon(
+            Icons.Filled.Refresh,
+            contentDescription = uiText("refresh"),
+            tint = tint,
+            modifier = Modifier.graphicsLayer(rotationZ = rotation),
+        )
     }
 }
 
@@ -1849,7 +1930,7 @@ private fun NexoraLogo(compact: Boolean = false) {
             modifier = Modifier.shadow(10.dp, RoundedCornerShape(1.dp), ambientColor = NexoraGreen, spotColor = NexoraGreen),
         )
         if (!compact) {
-            Text("Karma que conecta pessoas", color = Color(0xFFB6B6BD), fontStyle = FontStyle.Italic, letterSpacing = 2.sp)
+            Text(uiText("tagline"), color = Color(0xFFB6B6BD), fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
         }
     }
 }
@@ -1873,28 +1954,44 @@ private fun NexoraPanel(
 
 @Composable
 private fun LanguageSelector(language: AppLanguage, onSelect: (AppLanguage) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AppLanguage.entries.forEach { option ->
-            FilterChip(
-                selected = option == language,
-                onClick = { onSelect(option) },
-                label = { Text(option.flag, fontSize = 22.sp, maxLines = 1) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = NexoraGreen,
-                    selectedLabelColor = NexoraBlack,
-                    labelColor = NexoraText,
-                    containerColor = NexoraField,
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
-                    selected = option == language,
-                    borderColor = NexoraMuted,
-                    selectedBorderColor = NexoraGreen,
-                ),
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            border = BorderStroke(1.dp, NexoraGreen),
+            shape = RoundedCornerShape(999.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = NexoraGreen),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            modifier = Modifier.height(38.dp),
+        ) {
+            Text(language.flag, fontSize = 20.sp, maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = uiText("language", language),
+                tint = NexoraGreen,
+                modifier = Modifier.size(18.dp),
             )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = NexoraCard,
+        ) {
+        AppLanguage.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(option.flag, fontSize = 20.sp)
+                            Text(option.label, color = if (option == language) NexoraGreen else NexoraText, fontSize = 14.sp)
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    },
+                )
+            }
         }
     }
 }
@@ -2005,7 +2102,7 @@ private fun NexoraButton(text: String, loading: Boolean = false, enabled: Boolea
         if (loading) {
             CircularProgressIndicator(color = NexoraBlack, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(10.dp))
-            Text("AGUARDE", fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp, maxLines = 1)
+            Text(uiText("wait").uppercase(), fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp, maxLines = 1)
         } else {
             Text(text, fontWeight = FontWeight.Black, letterSpacing = 3.sp, fontSize = 16.sp, maxLines = 1)
         }
@@ -2015,21 +2112,44 @@ private fun NexoraButton(text: String, loading: Boolean = false, enabled: Boolea
 @Composable
 private fun StatText(label: String, value: String, color: Color) {
     Column {
-        Text(label, color = NexoraMuted, fontSize = 14.sp, letterSpacing = 2.sp)
+        Text(label, color = NexoraMuted, fontSize = 14.sp, letterSpacing = 1.sp)
         Text(value, color = color, fontSize = 24.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun ProfileStatsPanel(profile: Profile, language: AppLanguage) {
+    NexoraPanel {
+        ProfileStatRow(uiText("buff", language), formatBuff(profile.buffBps))
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Color(0xFF252525))
+        ProfileStatRow(uiText("limit", language), formatMoney(profile.supportLimitCents))
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Color(0xFF252525))
+        ProfileStatRow(uiText("invites", language), "${profile.invitedCount}")
+    }
+}
+
+@Composable
+private fun ProfileStatRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = NexoraMuted, fontSize = 14.sp, letterSpacing = 1.sp)
+        Text(value, color = NexoraGreen, fontSize = 26.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.End)
     }
 }
 
 @Composable
 private fun MetricCard(label: String, value: String, modifier: Modifier = Modifier, highlight: Boolean = false) {
     val valueSize = when {
-        value.length >= 12 -> 18.sp
-        value.length >= 9 -> 20.sp
-        value.length >= 6 -> 23.sp
+        value.length >= 12 -> 16.sp
+        value.length >= 9 -> 18.sp
+        value.length >= 6 -> 21.sp
         else -> 28.sp
     }
     Card(
-        modifier = modifier.heightIn(min = 112.dp),
+        modifier = modifier.heightIn(min = 118.dp),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = NexoraCard),
         border = BorderStroke(1.dp, Color(0xFF242424)),
@@ -2041,7 +2161,7 @@ private fun MetricCard(label: String, value: String, modifier: Modifier = Modifi
                 color = if (highlight) NexoraGreen else NexoraText,
                 fontSize = valueSize,
                 fontWeight = FontWeight.Black,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Clip,
             )
         }
@@ -2052,11 +2172,11 @@ private fun MetricCard(label: String, value: String, modifier: Modifier = Modifi
 private fun RoadmapCard(dashboard: Dashboard?) {
     NexoraPanel {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Expansão", color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text("Etapa ${dashboard?.roadmapStep ?: 1}", color = NexoraText, fontWeight = FontWeight.Bold)
+            Text(uiText("expansion"), color = NexoraGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("${uiText("stage")} ${dashboard?.roadmapStep ?: 1}", color = NexoraText, fontWeight = FontWeight.Bold)
         }
         Text(
-            "Capacidade atual: ${dashboard?.roadmapCapacity ?: 20} participantes",
+            "${uiText("currentCapacity")}: ${dashboard?.roadmapCapacity ?: 20} ${uiText("participants")}",
             color = NexoraMuted,
             modifier = Modifier.padding(top = 8.dp),
         )
@@ -2081,20 +2201,13 @@ private fun CommunityRequestCard(request: SupportRequest) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(request.publicCode, color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                Text("${request.requesterPublicId} · Lv ${request.requesterLevel}", color = NexoraMuted)
+                Text("${request.requesterPublicId} · ${uiText("levelShort")} ${request.requesterLevel}", color = NexoraMuted)
                 Text(formatTimestamp(request.createdAt), color = NexoraMuted, fontSize = 12.sp)
             }
             StatusPill(request.status)
         }
         Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth().background(NexoraDarkGreen.copy(alpha = 0.3f), RoundedCornerShape(8.dp)).padding(12.dp),
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Text("Solicitação ativa", color = NexoraGreen, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(10.dp))
-        Text("Será atendida pelo botão principal de Pix por ordem cronológica.", color = NexoraMuted, fontSize = 13.sp)
+        Text(uiText("chronologicalHelp"), color = NexoraMuted, fontSize = 13.sp)
     }
 }
 
@@ -2104,7 +2217,7 @@ private fun CompactRequestCard(request: SupportRequest) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text(request.publicCode, color = NexoraText, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                Text("Lv ${request.requesterLevel}", color = NexoraMuted)
+                Text("${uiText("levelShort")} ${request.requesterLevel}", color = NexoraMuted)
                 Text(formatTimestamp(request.createdAt), color = NexoraMuted, fontSize = 12.sp)
             }
             StatusPill(request.status)
@@ -2114,7 +2227,7 @@ private fun CompactRequestCard(request: SupportRequest) {
             modifier = Modifier.fillMaxWidth().background(NexoraDarkGreen.copy(alpha = 0.3f), RoundedCornerShape(8.dp)).padding(8.dp),
             horizontalArrangement = Arrangement.Center
         ) {
-            Text("Aguardando apoiadores", color = NexoraGreen, fontWeight = FontWeight.Medium)
+            Text(uiText("waitingSupporters"), color = NexoraGreen, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -2133,7 +2246,7 @@ private fun ContributionHistoryCard(contribution: ContributionHistory, viewModel
                 Text(formatMoney(contribution.amountCents), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Black)
                 Text(contribution.requestPublicCode, color = NexoraMuted)
                 Text(
-                    if (contribution.direction == "SENT") "Enviado para ${contribution.receiverPublicId}" else "Recebido de ${contribution.donorPublicId}",
+                    if (contribution.direction == "SENT") "${uiText("sentTo")} ${contribution.receiverPublicId}" else "${uiText("receivedFrom")} ${contribution.donorPublicId}",
                     color = NexoraMuted,
                 )
                 Text(formatTimestamp(contribution.createdAt), color = NexoraMuted, fontSize = 12.sp)
@@ -2141,10 +2254,10 @@ private fun ContributionHistoryCard(contribution: ContributionHistory, viewModel
             StatusPill(contribution.status)
         }
         Spacer(Modifier.height(10.dp))
-        LabelValue("ID da transação", contribution.transactionId ?: "aguardando comprovante")
+        LabelValue(uiText("transactionId"), contribution.transactionId ?: uiText("waitingReceipt"))
         Spacer(Modifier.height(10.dp))
         Text(
-            "Envio: ${if (contribution.hasSenderReceipt) "foto anexada" else "pendente"} · Recebimento: ${if (contribution.hasReceiverReceipt) "foto anexada" else "pendente"}",
+            "${uiText("sentReceipt")}: ${if (contribution.hasSenderReceipt) uiText("attachedPhoto") else uiText("pending")} · ${uiText("receivedReceipt")}: ${if (contribution.hasReceiverReceipt) uiText("attachedPhoto") else uiText("pending")}",
             color = if (contribution.evidenceComplete) NexoraGreen else NexoraMuted,
             fontSize = 14.sp,
         )
@@ -2160,7 +2273,7 @@ private fun ContributionHistoryCard(contribution: ContributionHistory, viewModel
                 ) {
                     Icon(
                         if (showUpload) Icons.Filled.Close else Icons.Filled.AttachFile,
-                        contentDescription = if (showUpload) "Ocultar" else "Anexar",
+                        contentDescription = if (showUpload) uiText("hide") else uiText("attach"),
                         tint = NexoraGreen
                     )
                 }
@@ -2198,12 +2311,12 @@ private fun ReceiptUploadControls(
                     upload = it
                     localError = null
                 }
-                .onFailure { localError = it.message ?: "Não foi possível anexar a foto." }
+                .onFailure { localError = it.message ?: uiText("photoAttachError") }
         }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        NexoraInput("Data do comprovante", receiptDate, { receiptDate = it }, readOnly = true)
+        NexoraInput(uiText("receiptDate"), receiptDate, { receiptDate = it }, readOnly = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(
                 onClick = { launcher.launch("image/*") },
@@ -2215,7 +2328,7 @@ private fun ReceiptUploadControls(
             ) {
                 Icon(
                     if (upload == null) Icons.Filled.AddAPhoto else Icons.Filled.Check,
-                    contentDescription = if (upload == null) "Anexar foto" else "Foto pronta",
+                    contentDescription = if (upload == null) uiText("attachPhoto") else uiText("photoReady"),
                     tint = NexoraGreen
                 )
             }
@@ -2223,7 +2336,7 @@ private fun ReceiptUploadControls(
                 onClick = {
                     val currentUpload = upload
                     if (currentUpload == null) {
-                        localError = "Anexe a foto do comprovante."
+                        localError = uiText("attachReceiptPhoto")
                     } else {
                         localError = null
                         // We send blank transactionId because the backend will extract it from OCR
@@ -2236,7 +2349,7 @@ private fun ReceiptUploadControls(
                 modifier = Modifier.weight(1f).height(56.dp),
                 contentPadding = PaddingValues(0.dp)
             ) {
-                Icon(Icons.Filled.Send, contentDescription = "ENVIAR")
+                Icon(Icons.Filled.Send, contentDescription = uiText("send"))
             }
         }
         localError?.let { Text(it, color = NexoraRed, fontSize = 13.sp) }
@@ -2273,6 +2386,234 @@ private fun StatusPill(status: String) {
 private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.current): String {
     val pt = mapOf(
         "language" to "Idioma",
+        "tabPanel" to "Painel",
+        "tabCommunity" to "Comunidade",
+        "tabRequest" to "Solicitar",
+        "tabProfile" to "Perfil",
+        "tabAdmin" to "Admin",
+        "communityTitle" to "Comunidade",
+        "communitySubtitle" to "Solicitações ativas para apoiar",
+        "communityPixOrder" to "Pix por ordem cronológica",
+        "totalValue" to "Valor total",
+        "generate" to "GERAR",
+        "communityEmptyTitle" to "Comunidade estável",
+        "communityEmptySubtitle" to "Nenhuma solicitação de outros usuários ativa no momento",
+        "requestTitle" to "Solicitar Apoio",
+        "requestSubtitle" to "A comunidade contribui via Pix até completar o valor",
+        "profileTitle" to "Perfil",
+        "adminTitle" to "Admin Nexora",
+        "adminSubtitle" to "Painel de controle dos fundadores",
+        "buff" to "BUFF",
+        "limit" to "LIMITE",
+        "invites" to "CONVITES",
+        "myRequests" to "Minhas solicitações",
+        "noRequestsTitle" to "Sem solicitações",
+        "noRequestsSubtitle" to "Quando criar uma solicitação, ela aparece aqui",
+        "transactionHistory" to "Histórico de transações",
+        "active" to "Ativas",
+        "cancelled" to "Canceladas",
+        "all" to "Todas",
+        "noTransactionsTitle" to "Sem transações",
+        "noTransactionsSubtitle" to "Nenhuma transação encontrada nesta categoria",
+        "statusNoReceipts" to "SEM COMPROVANTES",
+        "statusWaitingReceiverPhoto" to "AGUARDANDO FOTO DO RECEBEDOR",
+        "statusWaitingDonorPhoto" to "AGUARDANDO FOTO DO DOADOR",
+        "statusMatch" to "SISTEMA: DADOS CONFEREM",
+        "statusMismatch" to "SISTEMA: DIVERGÊNCIA ENCONTRADA",
+        "statusReview" to "SISTEMA: REVISÃO MANUAL",
+        "statusAnalyzing" to "ANÁLISE EM CURSO",
+        "statusNoReceiptsHelp" to "Ainda não há fotos anexadas para comparar.",
+        "statusWaitingReceiverHelp" to "Falta a foto de quem recebeu o Pix.",
+        "statusWaitingDonorHelp" to "Falta a foto de quem enviou o Pix.",
+        "statusWaitingBothHelp" to "O sistema só compara os dados quando os dois comprovantes forem enviados.",
+        "donorReceipt" to "Comprovante do Doador",
+        "receiverReceipt" to "Comprovante do Recebedor",
+        "noPhotoAttached" to "Sem foto anexada",
+        "autoRead" to "Leitura automática",
+        "receiptAmount" to "Valor",
+        "ocrConfidence" to "Confiança",
+        "receiptDate" to "Data no comprovante",
+        "sentAt" to "Enviado em",
+        "receiptIntegrityOk" to "Comprovante anexado",
+        "sentTo" to "Enviado para",
+        "receivedFrom" to "Recebido de",
+        "transactionId" to "ID da transação",
+        "waitingReceipt" to "aguardando comprovante",
+        "sentReceipt" to "Envio",
+        "receivedReceipt" to "Recebimento",
+        "attachedPhoto" to "foto anexada",
+        "pending" to "pendente",
+        "tagline" to "Karma que conecta pessoas",
+        "levelShort" to "Nv",
+        "level" to "Nível",
+        "communityLiquidity" to "LIQUIDEZ COMUNITÁRIA",
+        "inCirculation" to "Em circulação",
+        "completion" to "Cumprimento",
+        "activeRequests" to "Solicitações ativas",
+        "completedOperations" to "Operações concluídas",
+        "activeUsers" to "Usuários ativos",
+        "yourLimit" to "Seu limite",
+        "yourLimitUpper" to "SEU LIMITE",
+        "howItWorks" to "Como funciona",
+        "howItWorksBody" to "A comunidade contribui com pequenos valores via Pix até completar sua solicitação. Você registra o retorno no prazo e ganha XP, buffs e maior limite.",
+        "requestLocked" to "Solicitação liberada a partir do Nível 2 com 100 XP e limite disponível.",
+        "requestedValue" to "Valor solicitado",
+        "returnDeadlineDays" to "Prazo para retorno (dias)",
+        "optionalDescription" to "Descrição opcional",
+        "requestSupportButton" to "SOLICITAR APOIO",
+        "requestLockedShort" to "Você ainda não pode solicitar: precisa estar no Nível 2 com 100 XP.",
+        "enterValidValue" to "Informe um valor válido.",
+        "valueAboveLimit" to "Valor acima do seu limite atual.",
+        "enterDeadlineDays" to "Informe o prazo em dias.",
+        "deadlineRange" to "O prazo precisa ficar entre 1 e 30 dias.",
+        "pixCopied" to "Chave Pix copiada!",
+        "inviteCopied" to "Código de convite copiado!",
+        "copyLink" to "Copiar link",
+        "copy" to "Copiar",
+        "shareInvite" to "Compartilhar convite",
+        "share" to "Compartilhar",
+        "adminFeeAccumulated" to "Taxa administrativa acumulada",
+        "sendAdminFeeHelp" to "Envie a taxa para o Pix do admin e aguarde a baixa administrativa.",
+        "adminFeePix" to "Pix da taxa administrativa",
+        "noPendingFee" to "Sem taxa pendente para envio.",
+        "logout" to "Sair",
+        "wait" to "Aguarde",
+        "refresh" to "Atualizar",
+        "adminUsers" to "Usuários",
+        "adminRequests" to "Solicitações",
+        "adminContributions" to "Apoios",
+        "noUsersTitle" to "Sem usuários",
+        "noUsersSubtitle" to "Nenhum usuário encontrado com os filtros atuais",
+        "noAdminRequestsTitle" to "Sem solicitações",
+        "noAdminRequestsSubtitle" to "Nenhuma solicitação encontrada com os filtros atuais",
+        "noContributionsTitle" to "Sem apoios",
+        "noContributionsSubtitle" to "Nenhum apoio encontrado com os filtros atuais",
+        "search" to "Buscar...",
+        "status" to "Status",
+        "receipts" to "Comprovantes",
+        "completePlural" to "Completos",
+        "pendingPlural" to "Pendentes",
+        "period" to "Período (AAAA-MM-DD)",
+        "from" to "Desde",
+        "to" to "Até",
+        "viewDetails" to "Ver detalhes",
+        "fullUserData" to "Dados completos do usuário",
+        "role" to "Função",
+        "accumulatedFee" to "Taxa acumulada",
+        "adminRandomPix" to "Pix aleatório do admin",
+        "invite" to "Convite",
+        "invitedBy" to "Convidado por",
+        "invitedUsers" to "Convidados",
+        "createdAt" to "Criado em",
+        "requestDetails" to "Detalhes da solicitação",
+        "requester" to "Solicitante",
+        "value" to "Valor",
+        "adminFee" to "Taxa administrativa",
+        "deadline" to "Prazo",
+        "description" to "Descrição",
+        "linkedContributions" to "Apoios vinculados",
+        "noLinkedContributions" to "Nenhum apoio para esta solicitação.",
+        "pixSupportDetails" to "Detalhes do apoio Pix",
+        "support" to "Apoio",
+        "request" to "Solicitação",
+        "donor" to "Doador",
+        "receiver" to "Recebedor",
+        "pendingFee" to "Taxa pendente",
+        "approve" to "Aprovar",
+        "activate" to "Ativar",
+        "block" to "Bloquear",
+        "settleFee" to "Baixar taxa",
+        "reject" to "Recusar",
+        "validateReturn" to "Validar retorno",
+        "receipt" to "Recibo",
+        "photo" to "foto",
+        "validate" to "Validar",
+        "waitingPhotos" to "Aguardando fotos",
+        "confirm" to "Confirmar",
+        "cancel" to "Cancelar",
+        "confirmAction" to "Confirmar ação",
+        "expansion" to "Expansão",
+        "stage" to "Etapa",
+        "currentCapacity" to "Capacidade atual",
+        "participants" to "participantes",
+        "activeRequest" to "Solicitação ativa",
+        "chronologicalHelp" to "Será atendida pelo botão principal de Pix por ordem cronológica.",
+        "waitingSupporters" to "Aguardando apoiadores",
+        "hide" to "Ocultar",
+        "attach" to "Anexar",
+        "photoAttachError" to "Não foi possível anexar a foto.",
+        "attachPhoto" to "Anexar foto",
+        "photoReady" to "Foto pronta",
+        "attachReceiptPhoto" to "Anexe a foto do comprovante.",
+        "send" to "Enviar",
+        "day" to "dia",
+        "days" to "dias",
+        "superAdmin" to "Super admin",
+        "adminRole" to "Admin",
+        "userRole" to "Usuário",
+        "registrationEmailRequired" to "Informe o e-mail usado no cadastro.",
+        "sixDigitCodeRequired" to "Digite o código de 6 dígitos.",
+        "accountEmailRequired" to "Informe o e-mail da conta.",
+        "newPasswordMin" to "A nova senha precisa ter pelo menos 8 caracteres.",
+        "passwordsDontMatch" to "As senhas não conferem.",
+        "sessionLockedMessage" to "Por segurança, sua sessão foi bloqueada devido à inatividade.",
+        "unlock" to "DESBLOQUEAR",
+        "logoutNow" to "Sair agora",
+        "biometricAfterLogin" to "A digital aparece depois do primeiro login salvo. Se tocar em Sair, a sessão salva é removida.",
+        "biometricEnableDevice" to "Ative digital, face ou bloqueio de tela no aparelho para usar este acesso.",
+        "biometricButton" to "ENTRAR COM DIGITAL",
+        "biometricSavedHelp" to "Use a digital para desbloquear a sessão salva.",
+        "biometricFirstLoginHelp" to "Entre uma vez e feche o app sem tocar em Sair para liberar a digital.",
+        "verifyEmailLink" to "Verificar e-mail",
+        "forgotPassword" to "Esqueci a senha",
+        "resendCodeEmail" to "Reenviar código por e-mail",
+        "apiServer" to "Servidor da API",
+        "hideConfig" to "Ocultar config",
+        "serverConfig" to "Configuração do servidor",
+        "close" to "Fechar",
+        "pixInstruction" to "Instrução Pix",
+        "pixCodeForTransfer" to "Código Pix para esta transferência:",
+        "pixCodeCopied" to "Código Pix copiado!",
+        "identifier" to "Identificador",
+        "pixCode" to "Código Pix",
+        "codeUnavailable" to "Código indisponível",
+        "copyCode" to "Copiar código",
+        "imageSaved" to "Imagem salva na galeria!",
+        "imageSaveError" to "Erro ao salvar imagem",
+        "datePlaceholder" to "DD/MM/AAAA",
+        "enterDistributionValue" to "Informe um valor válido para distribuir.",
+        "noOpenRequests" to "Não há solicitações abertas de outras pessoas no momento.",
+        "biometricTitle" to "Entrar com digital",
+        "biometricSubtitle" to "Desbloqueie sua sessão Nexora salva",
+        "registerCreatedDev" to "Cadastro criado. Código dev",
+        "emailVerifiedLogin" to "E-mail verificado. Volte para entrar.",
+        "newCodeSent" to "Se o cadastro existir, um novo código será enviado.",
+        "recoverySent" to "Se o e-mail existir, enviaremos instruções de recuperação.",
+        "passwordUpdatedSignedIn" to "Senha atualizada. Entrada realizada.",
+        "passwordUpdatedLoginAgain" to "Senha atualizada. Entre novamente com a nova senha.",
+        "requestSentReview" to "Solicitação enviada para validação manual.",
+        "pixCodeGenerated" to "Código Pix gerado.",
+        "pixSplitGenerated" to "Pix fracionado por ordem cronológica.",
+        "photoAttachedWait" to "Foto anexada. Aguarde validação administrativa.",
+        "userApproved" to "Usuário aprovado.",
+        "userBlocked" to "Usuário bloqueado.",
+        "userUnblocked" to "Usuário desbloqueado.",
+        "feeSettled" to "Taxa baixada.",
+        "requestApproved" to "Solicitação aprovada.",
+        "requestRejected" to "Solicitação recusada.",
+        "returnValidated" to "Retorno validado.",
+        "supportValidated" to "Apoio validado.",
+        "supportRejected" to "Apoio recusado.",
+        "loggingOut" to "Saindo...",
+        "refreshingPanel" to "Atualizando painel",
+        "refreshingCommunity" to "Atualizando comunidade",
+        "refreshingProfile" to "Atualizando perfil",
+        "refreshingAdmin" to "Atualizando admin",
+        "noOpenRequestsForDistribution" to "Não há solicitações abertas de outras pessoas para distribuir esse valor. Se a única solicitação é sua, ela não pode receber seu próprio Pix.",
+        "badCredentials" to "CPF/e-mail ou senha incorretos. Confira os dados e tente novamente.",
+        "invalidCode" to "Código inválido ou expirado. Confira o e-mail ou solicite um novo código.",
+        "sessionInvalid" to "Sessão inválida. Entre novamente.",
+        "encryptedDataInvalid" to "Dados seguros da conta foram atualizados. Entre novamente.",
         "loginTitle" to "Entrar",
         "registerTitle" to "Cadastro",
         "verifyTitle" to "Verificar e-mail",
@@ -2314,7 +2655,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "emailInvalid" to "Informe um e-mail válido.",
         "cpfRequired" to "Informe um CPF com 11 dígitos.",
         "birthdateRequired" to "Informe sua data de nascimento.",
-        "birthdateInvalid" to "Data de nascimento inválida. Use AAAA-MM-DD.",
+        "birthdateInvalid" to "Data de nascimento inválida. Use DD/MM/AAAA.",
         "minimumAge" to "Precisa ter pelo menos 13 anos para se cadastrar.",
         "pixRequired" to "Informe sua chave Pix aleatória.",
         "pixRandomRequired" to "Use apenas a chave Pix aleatória gerada pelo banco. CPF, e-mail e telefone não são aceitos.",
@@ -2322,6 +2663,234 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
     )
     val es = mapOf(
         "language" to "Idioma",
+        "tabPanel" to "Panel",
+        "tabCommunity" to "Comunidad",
+        "tabRequest" to "Solicitar",
+        "tabProfile" to "Perfil",
+        "tabAdmin" to "Admin",
+        "communityTitle" to "Comunidad",
+        "communitySubtitle" to "Solicitudes activas para apoyar",
+        "communityPixOrder" to "Pix por orden cronológico",
+        "totalValue" to "Valor total",
+        "generate" to "GENERAR",
+        "communityEmptyTitle" to "Comunidad estable",
+        "communityEmptySubtitle" to "No hay solicitudes activas de otros usuarios en este momento",
+        "requestTitle" to "Solicitar apoyo",
+        "requestSubtitle" to "La comunidad contribuye por Pix hasta completar el valor",
+        "profileTitle" to "Perfil",
+        "adminTitle" to "Admin Nexora",
+        "adminSubtitle" to "Panel de control de fundadores",
+        "buff" to "BUFF",
+        "limit" to "LIMITE",
+        "invites" to "INVITACIONES",
+        "myRequests" to "Mis solicitudes",
+        "noRequestsTitle" to "Sin solicitudes",
+        "noRequestsSubtitle" to "Cuando crees una solicitud, aparecera aqui",
+        "transactionHistory" to "Historial de transacciones",
+        "active" to "Activas",
+        "cancelled" to "Canceladas",
+        "all" to "Todas",
+        "noTransactionsTitle" to "Sin transacciones",
+        "noTransactionsSubtitle" to "No hay transacciones en esta categoria",
+        "statusNoReceipts" to "SIN COMPROBANTES",
+        "statusWaitingReceiverPhoto" to "ESPERANDO FOTO DEL RECEPTOR",
+        "statusWaitingDonorPhoto" to "ESPERANDO FOTO DEL DONADOR",
+        "statusMatch" to "SISTEMA: DATOS COINCIDEN",
+        "statusMismatch" to "SISTEMA: DIVERGENCIA ENCONTRADA",
+        "statusReview" to "SISTEMA: REVISION MANUAL",
+        "statusAnalyzing" to "ANALISIS EN CURSO",
+        "statusNoReceiptsHelp" to "Todavia no hay fotos anexadas para comparar.",
+        "statusWaitingReceiverHelp" to "Falta la foto de quien recibio el Pix.",
+        "statusWaitingDonorHelp" to "Falta la foto de quien envio el Pix.",
+        "statusWaitingBothHelp" to "El sistema solo compara los datos cuando se envian los dos comprobantes.",
+        "donorReceipt" to "Comprobante del donador",
+        "receiverReceipt" to "Comprobante del receptor",
+        "noPhotoAttached" to "Sin foto anexada",
+        "autoRead" to "Lectura automatica",
+        "receiptAmount" to "Valor",
+        "ocrConfidence" to "Confianza",
+        "receiptDate" to "Fecha del comprobante",
+        "sentAt" to "Enviado el",
+        "receiptIntegrityOk" to "Comprobante anexado",
+        "sentTo" to "Enviado a",
+        "receivedFrom" to "Recibido de",
+        "transactionId" to "ID de transaccion",
+        "waitingReceipt" to "esperando comprobante",
+        "sentReceipt" to "Envio",
+        "receivedReceipt" to "Recepcion",
+        "attachedPhoto" to "foto anexada",
+        "pending" to "pendiente",
+        "tagline" to "Karma que conecta personas",
+        "levelShort" to "Nv",
+        "level" to "Nivel",
+        "communityLiquidity" to "LIQUIDEZ COMUNITARIA",
+        "inCirculation" to "En circulacion",
+        "completion" to "Cumplimiento",
+        "activeRequests" to "Solicitudes activas",
+        "completedOperations" to "Operaciones completadas",
+        "activeUsers" to "Usuarios activos",
+        "yourLimit" to "Tu limite",
+        "yourLimitUpper" to "TU LIMITE",
+        "howItWorks" to "Como funciona",
+        "howItWorksBody" to "La comunidad contribuye con pequenos valores por Pix hasta completar tu solicitud. Registras el retorno a tiempo y ganas XP, buffs y mayor limite.",
+        "requestLocked" to "Solicitud liberada desde el Nivel 2 con 100 XP y limite disponible.",
+        "requestedValue" to "Valor solicitado",
+        "returnDeadlineDays" to "Plazo de retorno (dias)",
+        "optionalDescription" to "Descripcion opcional",
+        "requestSupportButton" to "SOLICITAR APOYO",
+        "requestLockedShort" to "Aun no puedes solicitar: necesitas estar en Nivel 2 con 100 XP.",
+        "enterValidValue" to "Informa un valor valido.",
+        "valueAboveLimit" to "Valor por encima de tu limite actual.",
+        "enterDeadlineDays" to "Informa el plazo en dias.",
+        "deadlineRange" to "El plazo debe estar entre 1 y 30 dias.",
+        "pixCopied" to "Clave Pix copiada!",
+        "inviteCopied" to "Codigo de invitacion copiado!",
+        "copyLink" to "Copiar enlace",
+        "copy" to "Copiar",
+        "shareInvite" to "Compartir invitacion",
+        "share" to "Compartir",
+        "adminFeeAccumulated" to "Tasa administrativa acumulada",
+        "sendAdminFeeHelp" to "Envia la tasa al Pix del admin y espera la baja administrativa.",
+        "adminFeePix" to "Pix de la tasa administrativa",
+        "noPendingFee" to "Sin tasa pendiente para enviar.",
+        "logout" to "Salir",
+        "wait" to "Espera",
+        "refresh" to "Actualizar",
+        "adminUsers" to "Usuarios",
+        "adminRequests" to "Solicitudes",
+        "adminContributions" to "Apoyos",
+        "noUsersTitle" to "Sin usuarios",
+        "noUsersSubtitle" to "No se encontraron usuarios con los filtros actuales",
+        "noAdminRequestsTitle" to "Sin solicitudes",
+        "noAdminRequestsSubtitle" to "No se encontraron solicitudes con los filtros actuales",
+        "noContributionsTitle" to "Sin apoyos",
+        "noContributionsSubtitle" to "No se encontraron apoyos con los filtros actuales",
+        "search" to "Buscar...",
+        "status" to "Estado",
+        "receipts" to "Comprobantes",
+        "completePlural" to "Completos",
+        "pendingPlural" to "Pendientes",
+        "period" to "Periodo (AAAA-MM-DD)",
+        "from" to "Desde",
+        "to" to "Hasta",
+        "viewDetails" to "Ver detalles",
+        "fullUserData" to "Datos completos del usuario",
+        "role" to "Funcion",
+        "accumulatedFee" to "Tasa acumulada",
+        "adminRandomPix" to "Pix aleatorio del admin",
+        "invite" to "Invitacion",
+        "invitedBy" to "Invitado por",
+        "invitedUsers" to "Invitados",
+        "createdAt" to "Creado el",
+        "requestDetails" to "Detalles de la solicitud",
+        "requester" to "Solicitante",
+        "value" to "Valor",
+        "adminFee" to "Tasa administrativa",
+        "deadline" to "Plazo",
+        "description" to "Descripcion",
+        "linkedContributions" to "Apoyos vinculados",
+        "noLinkedContributions" to "No hay apoyos para esta solicitud.",
+        "pixSupportDetails" to "Detalles del apoyo Pix",
+        "support" to "Apoyo",
+        "request" to "Solicitud",
+        "donor" to "Donador",
+        "receiver" to "Receptor",
+        "pendingFee" to "Tasa pendiente",
+        "approve" to "Aprobar",
+        "activate" to "Activar",
+        "block" to "Bloquear",
+        "settleFee" to "Dar baja tasa",
+        "reject" to "Rechazar",
+        "validateReturn" to "Validar retorno",
+        "receipt" to "Recibo",
+        "photo" to "foto",
+        "validate" to "Validar",
+        "waitingPhotos" to "Esperando fotos",
+        "confirm" to "Confirmar",
+        "cancel" to "Cancelar",
+        "confirmAction" to "Confirmar accion",
+        "expansion" to "Expansion",
+        "stage" to "Etapa",
+        "currentCapacity" to "Capacidad actual",
+        "participants" to "participantes",
+        "activeRequest" to "Solicitud activa",
+        "chronologicalHelp" to "Sera atendida por el boton principal de Pix en orden cronologico.",
+        "waitingSupporters" to "Esperando apoyadores",
+        "hide" to "Ocultar",
+        "attach" to "Anexar",
+        "photoAttachError" to "No fue posible anexar la foto.",
+        "attachPhoto" to "Anexar foto",
+        "photoReady" to "Foto lista",
+        "attachReceiptPhoto" to "Anexa la foto del comprobante.",
+        "send" to "Enviar",
+        "day" to "dia",
+        "days" to "dias",
+        "superAdmin" to "Super admin",
+        "adminRole" to "Admin",
+        "userRole" to "Usuario",
+        "registrationEmailRequired" to "Informa el e-mail usado en el registro.",
+        "sixDigitCodeRequired" to "Escribe el codigo de 6 digitos.",
+        "accountEmailRequired" to "Informa el e-mail de la cuenta.",
+        "newPasswordMin" to "La nueva contrasena debe tener al menos 8 caracteres.",
+        "passwordsDontMatch" to "Las contrasenas no coinciden.",
+        "sessionLockedMessage" to "Por seguridad, tu sesion fue bloqueada por inactividad.",
+        "unlock" to "DESBLOQUEAR",
+        "logoutNow" to "Salir ahora",
+        "biometricAfterLogin" to "La huella aparece despues del primer login guardado. Si tocas Salir, la sesion guardada se elimina.",
+        "biometricEnableDevice" to "Activa huella, rostro o bloqueo de pantalla en el dispositivo para usar este acceso.",
+        "biometricButton" to "ENTRAR CON HUELLA",
+        "biometricSavedHelp" to "Usa la huella para desbloquear la sesion guardada.",
+        "biometricFirstLoginHelp" to "Entra una vez y cierra la app sin tocar Salir para liberar la huella.",
+        "verifyEmailLink" to "Verificar e-mail",
+        "forgotPassword" to "Olvide la contrasena",
+        "resendCodeEmail" to "Reenviar codigo por e-mail",
+        "apiServer" to "Servidor de API",
+        "hideConfig" to "Ocultar config",
+        "serverConfig" to "Configuracion del servidor",
+        "close" to "Cerrar",
+        "pixInstruction" to "Instruccion Pix",
+        "pixCodeForTransfer" to "Codigo Pix para esta transferencia:",
+        "pixCodeCopied" to "Codigo Pix copiado!",
+        "identifier" to "Identificador",
+        "pixCode" to "Codigo Pix",
+        "codeUnavailable" to "Codigo no disponible",
+        "copyCode" to "Copiar codigo",
+        "imageSaved" to "Imagen guardada en la galeria!",
+        "imageSaveError" to "Error al guardar imagen",
+        "datePlaceholder" to "DD/MM/AAAA",
+        "enterDistributionValue" to "Informa un valor valido para distribuir.",
+        "noOpenRequests" to "No hay solicitudes abiertas de otras personas en este momento.",
+        "biometricTitle" to "Entrar con huella",
+        "biometricSubtitle" to "Desbloquea tu sesion Nexora guardada",
+        "registerCreatedDev" to "Registro creado. Codigo dev",
+        "emailVerifiedLogin" to "E-mail verificado. Vuelve para entrar.",
+        "newCodeSent" to "Si el registro existe, se enviara un nuevo codigo.",
+        "recoverySent" to "Si el e-mail existe, enviaremos instrucciones de recuperacion.",
+        "passwordUpdatedSignedIn" to "Contrasena actualizada. Entrada realizada.",
+        "passwordUpdatedLoginAgain" to "Contrasena actualizada. Entra otra vez con la nueva contrasena.",
+        "requestSentReview" to "Solicitud enviada para validacion manual.",
+        "pixCodeGenerated" to "Codigo Pix generado.",
+        "pixSplitGenerated" to "Pix fraccionado por orden cronologico.",
+        "photoAttachedWait" to "Foto anexada. Espera la validacion administrativa.",
+        "userApproved" to "Usuario aprobado.",
+        "userBlocked" to "Usuario bloqueado.",
+        "userUnblocked" to "Usuario desbloqueado.",
+        "feeSettled" to "Tasa dada de baja.",
+        "requestApproved" to "Solicitud aprobada.",
+        "requestRejected" to "Solicitud rechazada.",
+        "returnValidated" to "Retorno validado.",
+        "supportValidated" to "Apoyo validado.",
+        "supportRejected" to "Apoyo rechazado.",
+        "loggingOut" to "Saliendo...",
+        "refreshingPanel" to "Actualizando panel",
+        "refreshingCommunity" to "Actualizando comunidad",
+        "refreshingProfile" to "Actualizando perfil",
+        "refreshingAdmin" to "Actualizando admin",
+        "noOpenRequestsForDistribution" to "No hay solicitudes abiertas de otras personas para distribuir ese valor. Si la unica solicitud es tuya, no puede recibir tu propio Pix.",
+        "badCredentials" to "CPF/e-mail o contrasena incorrectos. Revisa los datos e intenta de nuevo.",
+        "invalidCode" to "Codigo invalido o expirado. Revisa el e-mail o solicita un nuevo codigo.",
+        "sessionInvalid" to "Sesion invalida. Entra nuevamente.",
+        "encryptedDataInvalid" to "Los datos seguros de la cuenta fueron actualizados. Entra de nuevo.",
         "loginTitle" to "Entrar",
         "registerTitle" to "Registro",
         "verifyTitle" to "Verificar e-mail",
@@ -2363,7 +2932,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "emailInvalid" to "Informa un e-mail válido.",
         "cpfRequired" to "Informa un CPF con 11 dígitos.",
         "birthdateRequired" to "Informa tu fecha de nacimiento.",
-        "birthdateInvalid" to "Fecha de nacimiento inválida. Usa AAAA-MM-DD.",
+        "birthdateInvalid" to "Fecha de nacimiento inválida. Usa DD/MM/AAAA.",
         "minimumAge" to "Debes tener al menos 13 años para registrarte.",
         "pixRequired" to "Informa tu clave Pix aleatoria.",
         "pixRandomRequired" to "Usa solo la clave Pix aleatoria generada por el banco. CPF, e-mail y teléfono no se aceptan.",
@@ -2371,6 +2940,234 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
     )
     val en = mapOf(
         "language" to "Language",
+        "tabPanel" to "Panel",
+        "tabCommunity" to "Community",
+        "tabRequest" to "Request",
+        "tabProfile" to "Profile",
+        "tabAdmin" to "Admin",
+        "communityTitle" to "Community",
+        "communitySubtitle" to "Active requests to support",
+        "communityPixOrder" to "Pix by chronological order",
+        "totalValue" to "Total value",
+        "generate" to "GENERATE",
+        "communityEmptyTitle" to "Stable community",
+        "communityEmptySubtitle" to "No active requests from other users right now",
+        "requestTitle" to "Request Support",
+        "requestSubtitle" to "The community contributes through Pix until the amount is complete",
+        "profileTitle" to "Profile",
+        "adminTitle" to "Admin Nexora",
+        "adminSubtitle" to "Founder control panel",
+        "buff" to "BUFF",
+        "limit" to "LIMIT",
+        "invites" to "INVITES",
+        "myRequests" to "My requests",
+        "noRequestsTitle" to "No requests",
+        "noRequestsSubtitle" to "When you create a request, it will appear here",
+        "transactionHistory" to "Transaction history",
+        "active" to "Active",
+        "cancelled" to "Cancelled",
+        "all" to "All",
+        "noTransactionsTitle" to "No transactions",
+        "noTransactionsSubtitle" to "No transactions found in this category",
+        "statusNoReceipts" to "NO RECEIPTS",
+        "statusWaitingReceiverPhoto" to "WAITING FOR RECEIVER PHOTO",
+        "statusWaitingDonorPhoto" to "WAITING FOR DONOR PHOTO",
+        "statusMatch" to "SYSTEM: DATA MATCHES",
+        "statusMismatch" to "SYSTEM: MISMATCH FOUND",
+        "statusReview" to "SYSTEM: MANUAL REVIEW",
+        "statusAnalyzing" to "ANALYSIS IN PROGRESS",
+        "statusNoReceiptsHelp" to "There are no attached photos to compare yet.",
+        "statusWaitingReceiverHelp" to "The receiver's Pix photo is still missing.",
+        "statusWaitingDonorHelp" to "The sender's Pix photo is still missing.",
+        "statusWaitingBothHelp" to "The system compares data only after both receipts are sent.",
+        "donorReceipt" to "Donor receipt",
+        "receiverReceipt" to "Receiver receipt",
+        "noPhotoAttached" to "No photo attached",
+        "autoRead" to "Automatic reading",
+        "receiptAmount" to "Amount",
+        "ocrConfidence" to "Confidence",
+        "receiptDate" to "Receipt date",
+        "sentAt" to "Sent at",
+        "receiptIntegrityOk" to "Receipt attached",
+        "sentTo" to "Sent to",
+        "receivedFrom" to "Received from",
+        "transactionId" to "Transaction ID",
+        "waitingReceipt" to "waiting for receipt",
+        "sentReceipt" to "Sent",
+        "receivedReceipt" to "Received",
+        "attachedPhoto" to "photo attached",
+        "pending" to "pending",
+        "tagline" to "Karma that connects people",
+        "levelShort" to "Lv",
+        "level" to "Level",
+        "communityLiquidity" to "COMMUNITY LIQUIDITY",
+        "inCirculation" to "In circulation",
+        "completion" to "Completion",
+        "activeRequests" to "Active requests",
+        "completedOperations" to "Completed operations",
+        "activeUsers" to "Active users",
+        "yourLimit" to "Your limit",
+        "yourLimitUpper" to "YOUR LIMIT",
+        "howItWorks" to "How it works",
+        "howItWorksBody" to "The community contributes small amounts through Pix until your request is complete. You register the return on time and earn XP, buffs, and a higher limit.",
+        "requestLocked" to "Requests unlock at Level 2 with 100 XP and available limit.",
+        "requestedValue" to "Requested amount",
+        "returnDeadlineDays" to "Return deadline (days)",
+        "optionalDescription" to "Optional description",
+        "requestSupportButton" to "REQUEST SUPPORT",
+        "requestLockedShort" to "You cannot request yet: you need Level 2 with 100 XP.",
+        "enterValidValue" to "Enter a valid amount.",
+        "valueAboveLimit" to "Amount above your current limit.",
+        "enterDeadlineDays" to "Enter the deadline in days.",
+        "deadlineRange" to "The deadline must be between 1 and 30 days.",
+        "pixCopied" to "Pix key copied!",
+        "inviteCopied" to "Invite code copied!",
+        "copyLink" to "Copy link",
+        "copy" to "Copy",
+        "shareInvite" to "Share invite",
+        "share" to "Share",
+        "adminFeeAccumulated" to "Accumulated admin fee",
+        "sendAdminFeeHelp" to "Send the fee to the admin Pix and wait for admin clearance.",
+        "adminFeePix" to "Admin fee Pix",
+        "noPendingFee" to "No pending fee to send.",
+        "logout" to "Log out",
+        "wait" to "Wait",
+        "refresh" to "Refresh",
+        "adminUsers" to "Users",
+        "adminRequests" to "Requests",
+        "adminContributions" to "Supports",
+        "noUsersTitle" to "No users",
+        "noUsersSubtitle" to "No users found with the current filters",
+        "noAdminRequestsTitle" to "No requests",
+        "noAdminRequestsSubtitle" to "No requests found with the current filters",
+        "noContributionsTitle" to "No supports",
+        "noContributionsSubtitle" to "No supports found with the current filters",
+        "search" to "Search...",
+        "status" to "Status",
+        "receipts" to "Receipts",
+        "completePlural" to "Complete",
+        "pendingPlural" to "Pending",
+        "period" to "Period (YYYY-MM-DD)",
+        "from" to "From",
+        "to" to "To",
+        "viewDetails" to "View details",
+        "fullUserData" to "Full user data",
+        "role" to "Role",
+        "accumulatedFee" to "Accumulated fee",
+        "adminRandomPix" to "Admin random Pix",
+        "invite" to "Invite",
+        "invitedBy" to "Invited by",
+        "invitedUsers" to "Invited users",
+        "createdAt" to "Created at",
+        "requestDetails" to "Request details",
+        "requester" to "Requester",
+        "value" to "Amount",
+        "adminFee" to "Admin fee",
+        "deadline" to "Deadline",
+        "description" to "Description",
+        "linkedContributions" to "Linked supports",
+        "noLinkedContributions" to "No supports for this request.",
+        "pixSupportDetails" to "Pix support details",
+        "support" to "Support",
+        "request" to "Request",
+        "donor" to "Donor",
+        "receiver" to "Receiver",
+        "pendingFee" to "Pending fee",
+        "approve" to "Approve",
+        "activate" to "Activate",
+        "block" to "Block",
+        "settleFee" to "Settle fee",
+        "reject" to "Reject",
+        "validateReturn" to "Validate return",
+        "receipt" to "Receipt",
+        "photo" to "photo",
+        "validate" to "Validate",
+        "waitingPhotos" to "Waiting for photos",
+        "confirm" to "Confirm",
+        "cancel" to "Cancel",
+        "confirmAction" to "Confirm action",
+        "expansion" to "Expansion",
+        "stage" to "Stage",
+        "currentCapacity" to "Current capacity",
+        "participants" to "participants",
+        "activeRequest" to "Active request",
+        "chronologicalHelp" to "It will be handled by the main Pix button in chronological order.",
+        "waitingSupporters" to "Waiting for supporters",
+        "hide" to "Hide",
+        "attach" to "Attach",
+        "photoAttachError" to "Could not attach the photo.",
+        "attachPhoto" to "Attach photo",
+        "photoReady" to "Photo ready",
+        "attachReceiptPhoto" to "Attach the receipt photo.",
+        "send" to "Send",
+        "day" to "day",
+        "days" to "days",
+        "superAdmin" to "Super admin",
+        "adminRole" to "Admin",
+        "userRole" to "User",
+        "registrationEmailRequired" to "Enter the email used at registration.",
+        "sixDigitCodeRequired" to "Enter the 6-digit code.",
+        "accountEmailRequired" to "Enter the account email.",
+        "newPasswordMin" to "The new password must be at least 8 characters.",
+        "passwordsDontMatch" to "Passwords do not match.",
+        "sessionLockedMessage" to "For security, your session was locked due to inactivity.",
+        "unlock" to "UNLOCK",
+        "logoutNow" to "Log out now",
+        "biometricAfterLogin" to "Fingerprint appears after the first saved login. If you tap Log out, the saved session is removed.",
+        "biometricEnableDevice" to "Enable fingerprint, face, or screen lock on the device to use this access.",
+        "biometricButton" to "SIGN IN WITH FINGERPRINT",
+        "biometricSavedHelp" to "Use fingerprint to unlock the saved session.",
+        "biometricFirstLoginHelp" to "Sign in once and close the app without tapping Log out to enable fingerprint.",
+        "verifyEmailLink" to "Verify email",
+        "forgotPassword" to "Forgot password",
+        "resendCodeEmail" to "Resend code by email",
+        "apiServer" to "API server",
+        "hideConfig" to "Hide config",
+        "serverConfig" to "Server configuration",
+        "close" to "Close",
+        "pixInstruction" to "Pix instruction",
+        "pixCodeForTransfer" to "Pix code for this transfer:",
+        "pixCodeCopied" to "Pix code copied!",
+        "identifier" to "Identifier",
+        "pixCode" to "Pix code",
+        "codeUnavailable" to "Code unavailable",
+        "copyCode" to "Copy code",
+        "imageSaved" to "Image saved to gallery!",
+        "imageSaveError" to "Error saving image",
+        "datePlaceholder" to "DD/MM/YYYY",
+        "enterDistributionValue" to "Enter a valid amount to distribute.",
+        "noOpenRequests" to "There are no open requests from other people right now.",
+        "biometricTitle" to "Sign in with fingerprint",
+        "biometricSubtitle" to "Unlock your saved Nexora session",
+        "registerCreatedDev" to "Account created. Dev code",
+        "emailVerifiedLogin" to "Email verified. Go back to sign in.",
+        "newCodeSent" to "If the account exists, a new code will be sent.",
+        "recoverySent" to "If the email exists, we will send recovery instructions.",
+        "passwordUpdatedSignedIn" to "Password updated. Signed in.",
+        "passwordUpdatedLoginAgain" to "Password updated. Sign in again with the new password.",
+        "requestSentReview" to "Request sent for manual validation.",
+        "pixCodeGenerated" to "Pix code generated.",
+        "pixSplitGenerated" to "Pix split by chronological order.",
+        "photoAttachedWait" to "Photo attached. Wait for admin validation.",
+        "userApproved" to "User approved.",
+        "userBlocked" to "User blocked.",
+        "userUnblocked" to "User unblocked.",
+        "feeSettled" to "Fee settled.",
+        "requestApproved" to "Request approved.",
+        "requestRejected" to "Request rejected.",
+        "returnValidated" to "Return validated.",
+        "supportValidated" to "Support validated.",
+        "supportRejected" to "Support rejected.",
+        "loggingOut" to "Logging out...",
+        "refreshingPanel" to "Refreshing panel",
+        "refreshingCommunity" to "Refreshing community",
+        "refreshingProfile" to "Refreshing profile",
+        "refreshingAdmin" to "Refreshing admin",
+        "noOpenRequestsForDistribution" to "There are no open requests from other people to distribute this amount. If the only request is yours, it cannot receive your own Pix.",
+        "badCredentials" to "CPF/email or password is incorrect. Check the data and try again.",
+        "invalidCode" to "Invalid or expired code. Check your email or request a new code.",
+        "sessionInvalid" to "Invalid session. Sign in again.",
+        "encryptedDataInvalid" to "Secure account data was updated. Sign in again.",
         "loginTitle" to "Sign in",
         "registerTitle" to "Create account",
         "verifyTitle" to "Verify email",
@@ -2412,7 +3209,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "emailInvalid" to "Enter a valid email.",
         "cpfRequired" to "Enter an 11-digit CPF.",
         "birthdateRequired" to "Enter your birth date.",
-        "birthdateInvalid" to "Invalid birth date. Use YYYY-MM-DD.",
+        "birthdateInvalid" to "Invalid birth date. Use DD/MM/YYYY.",
         "minimumAge" to "You must be at least 13 years old to sign up.",
         "pixRequired" to "Enter your random Pix key.",
         "pixRandomRequired" to "Use only the bank-generated random Pix key. CPF, email, and phone are not accepted.",
@@ -2425,11 +3222,72 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
     } ?: pt[key] ?: key
 }
 
+private fun runtimeText(message: String, language: AppLanguage = NexoraLanguageStore.current): String {
+    val normalized = message
+        .lowercase()
+        .replace("ã", "a")
+        .replace("á", "a")
+        .replace("à", "a")
+        .replace("â", "a")
+        .replace("é", "e")
+        .replace("ê", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ô", "o")
+        .replace("õ", "o")
+        .replace("ú", "u")
+        .replace("ç", "c")
+    val key = when {
+        normalized.contains("cadastro criado") && normalized.contains("codigo dev") -> "registerCreatedDev"
+        normalized.contains("email verificado") || normalized.contains("e-mail verificado") -> "emailVerifiedLogin"
+        normalized.contains("novo codigo") || normalized.contains("novo c") && normalized.contains("enviado") -> "newCodeSent"
+        normalized.contains("instrucoes de recuperacao") || normalized.contains("instruc") && normalized.contains("recuper") -> "recoverySent"
+        normalized.contains("senha atualizada") && normalized.contains("entrada realizada") -> "passwordUpdatedSignedIn"
+        normalized.contains("senha atualizada") -> "passwordUpdatedLoginAgain"
+        normalized.contains("solicitacao enviada") -> "requestSentReview"
+        normalized.contains("codigo pix gerado") -> "pixCodeGenerated"
+        normalized.contains("pix fracionado") -> "pixSplitGenerated"
+        normalized.contains("foto anexada") -> "photoAttachedWait"
+        normalized.contains("usuario aprovado") -> "userApproved"
+        normalized.contains("usuario bloqueado") -> "userBlocked"
+        normalized.contains("usuario desbloqueado") -> "userUnblocked"
+        normalized.contains("taxa baixada") -> "feeSettled"
+        normalized.contains("solicitacao aprovada") -> "requestApproved"
+        normalized.contains("solicitacao recusada") -> "requestRejected"
+        normalized.contains("retorno validado") -> "returnValidated"
+        normalized.contains("apoio validado") -> "supportValidated"
+        normalized.contains("apoio recusado") -> "supportRejected"
+        normalized.contains("saindo") -> "loggingOut"
+        normalized.contains("aguarde") -> "wait"
+        normalized.contains("atualizando") && normalized.contains("painel") -> "refreshingPanel"
+        normalized.contains("atualizando") && normalized.contains("comunidade") -> "refreshingCommunity"
+        normalized.contains("atualizando") && normalized.contains("perfil") -> "refreshingProfile"
+        normalized.contains("atualizando") && normalized.contains("admin") -> "refreshingAdmin"
+        normalized.contains("nao ha solicitacoes") || normalized.contains("não há solicitações") -> "noOpenRequestsForDistribution"
+        normalized.contains("cpf/e-mail") || normalized.contains("senha incorret") -> "badCredentials"
+        normalized.contains("codigo invalido") || normalized.contains("código inválido") -> "invalidCode"
+        normalized.contains("payload criptografado") ||
+            normalized.contains("descriptografar dados") ||
+            normalized.contains("dados seguros da conta") -> "encryptedDataInvalid"
+        normalized.contains("sessao") || normalized.contains("sessão") || normalized.contains("token") -> "sessionInvalid"
+        else -> null
+    }
+    val translated = key?.let { uiText(it, language) }
+    return if (translated != null && key == "registerCreatedDev") {
+        val code = Regex("(\\d{6})").find(message)?.value
+        if (code != null) "$translated: $code" else translated
+    } else {
+        translated ?: message
+    }
+}
+
 private fun statusLabel(status: String): String {
     val labels = when (NexoraLanguageStore.current) {
         AppLanguage.PT -> mapOf(
             "PENDING_REVIEW" to "aguardando admin",
             "PENDING_ADMIN" to "aguardando admin",
+            "PENDING_RECEIPTS" to "aguardando comprovantes",
+            "PENDING" to "pendente",
             "APPROVED" to "aprovado",
             "BLOCKED" to "bloqueado",
             "OPEN" to "ativo",
@@ -2443,6 +3301,8 @@ private fun statusLabel(status: String): String {
         AppLanguage.ES -> mapOf(
             "PENDING_REVIEW" to "en revisión",
             "PENDING_ADMIN" to "esperando admin",
+            "PENDING_RECEIPTS" to "esperando comprobantes",
+            "PENDING" to "pendiente",
             "APPROVED" to "aprobado",
             "BLOCKED" to "bloqueado",
             "OPEN" to "activo",
@@ -2456,6 +3316,8 @@ private fun statusLabel(status: String): String {
         AppLanguage.EN -> mapOf(
             "PENDING_REVIEW" to "under review",
             "PENDING_ADMIN" to "awaiting admin",
+            "PENDING_RECEIPTS" to "awaiting receipts",
+            "PENDING" to "pending",
             "APPROVED" to "approved",
             "BLOCKED" to "blocked",
             "OPEN" to "active",
@@ -2469,6 +3331,15 @@ private fun statusLabel(status: String): String {
     }
 
     return labels[status] ?: status.lowercase()
+}
+
+private fun formatDays(days: Int): String = "$days ${uiText(if (days == 1) "day" else "days")}"
+
+private fun roleLabel(role: String): String = when (role.uppercase()) {
+    "SUPER_ADMIN" -> uiText("superAdmin")
+    "ADMIN" -> uiText("adminRole")
+    "USER" -> uiText("userRole")
+    else -> role
 }
 
 @Composable
@@ -2496,12 +3367,12 @@ private fun AdminUserCard(user: AdminUser, viewModel: NexoraViewModel, onDetails
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             LabelValue("CPF", user.cpf, compact = true)
-            LabelValue("Lv / XP", "${user.level} / ${user.xp}", compact = true)
-            LabelValue("BUFF", formatBuff(user.buffBps), compact = true)
+            LabelValue("${uiText("levelShort")} / XP", "${user.level} / ${user.xp}", compact = true)
+            LabelValue(uiText("buff"), formatBuff(user.buffBps), compact = true)
         }
         
         Spacer(Modifier.height(12.dp))
-        LabelValue("Chave Pix aleatória", user.pixKey, compact = true)
+        LabelValue(uiText("pixKey"), user.pixKey, compact = true)
         
         if (user.adminFeeDueCents > 0) {
             Spacer(Modifier.height(12.dp))
@@ -2511,7 +3382,7 @@ private fun AdminUserCard(user: AdminUser, viewModel: NexoraViewModel, onDetails
             ) {
                 Icon(Icons.Filled.Warning, contentDescription = null, tint = NexoraRed, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Taxa pendente: ${formatMoney(user.adminFeeDueCents)}", color = NexoraRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("${uiText("pendingFee")}: ${formatMoney(user.adminFeeDueCents)}", color = NexoraRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
 
@@ -2519,15 +3390,15 @@ private fun AdminUserCard(user: AdminUser, viewModel: NexoraViewModel, onDetails
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             DetailAction(onDetails)
             if (user.status == "PENDING_REVIEW") {
-                SmallAction("Aprovar", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/approve") { viewModel.adminApproveUser(user.id) }
+                SmallAction(uiText("approve"), NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/approve") { viewModel.adminApproveUser(user.id) }
             }
             if (user.status == "BLOCKED") {
-                SmallAction("Ativar", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/unblock") { viewModel.adminUnblockUser(user.id) }
+                SmallAction(uiText("activate"), NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/unblock") { viewModel.adminUnblockUser(user.id) }
             } else {
-                SmallAction("Bloquear", NexoraRed, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/block") { viewModel.adminBlockUser(user.id) }
+                SmallAction(uiText("block"), NexoraRed, loading = viewModel.state.actionInProgress == "/admin/users/${user.id}/block") { viewModel.adminBlockUser(user.id) }
             }
             if (user.adminFeeDueCents > 0) {
-                SmallAction("Baixar Taxa", NexoraMuted, loading = viewModel.state.actionInProgress == "user-fee-${user.id}") { viewModel.adminConfirmFee(user.id) }
+                SmallAction(uiText("settleFee"), NexoraMuted, loading = viewModel.state.actionInProgress == "user-fee-${user.id}") { viewModel.adminConfirmFee(user.id) }
             }
         }
     }
@@ -2548,12 +3419,12 @@ private fun AdminRequestCard(request: AdminSupportRequest, viewModel: NexoraView
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
-                Text("Solicitante", color = NexoraMuted, fontSize = 11.sp)
+                Text(uiText("requester"), color = NexoraMuted, fontSize = 11.sp)
                 Text(request.requesterName, color = NexoraText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text("Prazo", color = NexoraMuted, fontSize = 11.sp)
-                Text("${request.dueDays} dias", color = NexoraText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(uiText("deadline"), color = NexoraMuted, fontSize = 11.sp)
+                Text(formatDays(request.dueDays), color = NexoraText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
         
@@ -2566,11 +3437,11 @@ private fun AdminRequestCard(request: AdminSupportRequest, viewModel: NexoraView
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             DetailAction(onDetails)
             if (request.status == "PENDING_ADMIN") {
-                SmallAction("Aprovar", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/approve") { viewModel.adminApproveRequest(request.id) }
-                SmallAction("Recusar", NexoraRed, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/reject") { viewModel.adminRejectRequest(request.id) }
+                SmallAction(uiText("approve"), NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/approve") { viewModel.adminApproveRequest(request.id) }
+                SmallAction(uiText("reject"), NexoraRed, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/reject") { viewModel.adminRejectRequest(request.id) }
             }
             if (request.status == "FUNDED") {
-                SmallAction("Validar Retorno", NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/confirm-return") { viewModel.adminConfirmReturn(request.id) }
+                SmallAction(uiText("validateReturn"), NexoraGreen, loading = viewModel.state.actionInProgress == "/admin/support-requests/${request.id}/confirm-return") { viewModel.adminConfirmReturn(request.id) }
             }
         }
     }
@@ -2601,7 +3472,7 @@ private fun AdminContributionCard(contribution: AdminContribution, viewModel: Ne
                 )
             }
             Text(
-                "${contribution.donorName.ifBlank { "Doador" }} -> ${contribution.receiverName.ifBlank { "Recebedor" }}",
+                "${contribution.donorName.ifBlank { uiText("donor") }} -> ${contribution.receiverName.ifBlank { uiText("receiver") }}",
                 color = NexoraMuted,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(start = 24.dp)
@@ -2611,7 +3482,7 @@ private fun AdminContributionCard(contribution: AdminContribution, viewModel: Ne
                 Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = NexoraMuted, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "ID: ${contribution.transactionId ?: "pendente"}",
+                    "${uiText("transactionId")}: ${contribution.transactionId ?: uiText("pending")}",
                     color = NexoraText,
                     fontSize = 13.sp
                 )
@@ -2621,7 +3492,7 @@ private fun AdminContributionCard(contribution: AdminContribution, viewModel: Ne
                 Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = if (contribution.evidenceComplete) NexoraGreen else NexoraMuted, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "Envio: ${if (contribution.hasSenderReceipt) "foto" else "pendente"} · Recibo: ${if (contribution.hasReceiverReceipt) "foto" else "pendente"}",
+                    "${uiText("sentReceipt")}: ${if (contribution.hasSenderReceipt) uiText("photo") else uiText("pending")} · ${uiText("receipt")}: ${if (contribution.hasReceiverReceipt) uiText("photo") else uiText("pending")}",
                     color = if (contribution.evidenceComplete) NexoraGreen else NexoraMuted,
                     fontSize = 13.sp
                 )
@@ -2633,11 +3504,11 @@ private fun AdminContributionCard(contribution: AdminContribution, viewModel: Ne
             DetailAction(onDetails)
             if (contribution.status == "PENDING_ADMIN") {
                 if (contribution.evidenceComplete) {
-                    SmallAction("Validar", NexoraGreen, loading = viewModel.state.actionInProgress == "contribution-confirm-${contribution.id}") { viewModel.adminConfirmContribution(contribution.id) }
+                    SmallAction(uiText("validate"), NexoraGreen, loading = viewModel.state.actionInProgress == "contribution-confirm-${contribution.id}") { viewModel.adminConfirmContribution(contribution.id) }
                 } else {
-                    Text("Aguardando fotos", color = NexoraMuted, fontSize = 12.sp, fontStyle = FontStyle.Italic)
+                    Text(uiText("waitingPhotos"), color = NexoraMuted, fontSize = 12.sp, fontStyle = FontStyle.Italic)
                 }
-                SmallAction("Recusar", NexoraRed, loading = viewModel.state.actionInProgress == "contribution-reject-${contribution.id}") { viewModel.adminRejectContribution(contribution.id) }
+                SmallAction(uiText("reject"), NexoraRed, loading = viewModel.state.actionInProgress == "contribution-reject-${contribution.id}") { viewModel.adminRejectContribution(contribution.id) }
             }
         }
     }
@@ -2654,16 +3525,16 @@ private fun SmallAction(text: String, color: Color, loading: Boolean = false, on
                     confirm = false
                     onClick()
                 }) {
-                    Text("Confirmar", color = NexoraGreen, fontWeight = FontWeight.Bold)
+                    Text(uiText("confirm"), color = NexoraGreen, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { confirm = false }) {
-                    Text("Cancelar", color = NexoraMuted, fontWeight = FontWeight.Bold)
+                    Text(uiText("cancel"), color = NexoraMuted, fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = NexoraCard,
-            title = { Text("Confirmar acao", color = NexoraText, fontWeight = FontWeight.Black) },
+            title = { Text(uiText("confirmAction"), color = NexoraText, fontWeight = FontWeight.Black) },
             text = { Text(text, color = NexoraMuted) },
         )
     }
@@ -2680,9 +3551,9 @@ private fun SmallAction(text: String, color: Color, loading: Boolean = false, on
             CircularProgressIndicator(color = color, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
         } else {
             when {
-                text.contains("Aprovar", ignoreCase = true) || text.contains("Validar", ignoreCase = true) ->
+                color == NexoraGreen ->
                     Icon(Icons.Filled.CheckCircle, contentDescription = text, tint = color)
-                text.contains("Baixar", ignoreCase = true) ->
+                color == NexoraMuted ->
                     Icon(Icons.Filled.ContentCopy, contentDescription = text, tint = color)
                 else -> Icon(Icons.Filled.Warning, contentDescription = text, tint = color)
             }
@@ -2764,26 +3635,26 @@ private fun PixDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Fechar", color = NexoraGreen, fontWeight = FontWeight.Bold)
+                Text(uiText("close"), color = NexoraGreen, fontWeight = FontWeight.Bold)
             }
         },
         containerColor = NexoraCard,
-        title = { Text("Instrução Pix", color = NexoraText, fontWeight = FontWeight.Black) },
+        title = { Text(uiText("pixInstruction"), color = NexoraText, fontWeight = FontWeight.Black) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 instructions.forEachIndexed { index, instruction ->
                     if (index > 0) HorizontalDivider(Modifier.padding(vertical = 16.dp), color = Color(0xFF252525))
-                    Text("Código Pix para esta transferência:", color = NexoraMuted, fontSize = 12.sp)
+                    Text(uiText("pixCodeForTransfer"), color = NexoraMuted, fontSize = 12.sp)
                     Spacer(Modifier.height(8.dp))
                     PixCodeBox(
                         code = instruction.pixCopyCode,
                         onCopy = {
                             clipboard.setText(AnnotatedString(instruction.pixCopyCode))
-                            Toast.makeText(context, "Código Pix copiado!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, uiText("pixCodeCopied"), Toast.LENGTH_SHORT).show()
                         },
                     )
                     Spacer(Modifier.height(12.dp))
-                    Text("Identificador: ${instruction.contributionId.take(8)}", color = NexoraMuted, fontSize = 12.sp)
+                    Text("${uiText("identifier")}: ${instruction.contributionId.take(8)}", color = NexoraMuted, fontSize = 12.sp)
                 }
             }
         },
@@ -2798,10 +3669,10 @@ private fun PixCodeBox(code: String, onCopy: () -> Unit) {
             .background(NexoraField, RoundedCornerShape(8.dp))
             .padding(14.dp),
     ) {
-        Text("Código Pix", color = NexoraMuted, fontSize = 13.sp, letterSpacing = 1.sp)
+        Text(uiText("pixCode"), color = NexoraMuted, fontSize = 13.sp, letterSpacing = 1.sp)
         SelectionContainer {
             Text(
-                code.ifBlank { "Código indisponível" },
+                code.ifBlank { uiText("codeUnavailable") },
                 color = NexoraText,
                 fontSize = 14.sp,
                 lineHeight = 19.sp,
@@ -2817,7 +3688,7 @@ private fun PixCodeBox(code: String, onCopy: () -> Unit) {
         ) {
             Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = NexoraGreen, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Copiar código", color = NexoraGreen, fontWeight = FontWeight.Bold)
+            Text(uiText("copyCode"), color = NexoraGreen, fontWeight = FontWeight.Bold)
         }
     }
 }
