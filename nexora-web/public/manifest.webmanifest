@@ -1,0 +1,17 @@
+{
+  "name": "Nexora",
+  "short_name": "Nexora",
+  "description": "Comunidade Nexora e painel administrativo.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07100c",
+  "theme_color": "#07100c",
+  "icons": [
+    {
+      "src": "/nexora-logo.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
