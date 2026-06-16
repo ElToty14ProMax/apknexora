@@ -44,8 +44,9 @@ class ApiClientTest {
 
     @Test
     fun production_base_url_uses_public_api_prefix() {
-        assertEquals("https://backend-laravel-two.vercel.app", normalizeApiBaseUrl("https://nexoraappbr.com"))
-        assertEquals("https://backend-laravel-two.vercel.app", normalizeApiBaseUrl("https://nexoraappbr.com/api/"))
+        assertEquals("https://nexoraappbr.com/api", normalizeApiBaseUrl("https://nexoraappbr.com"))
+        assertEquals("https://nexoraappbr.com/api", normalizeApiBaseUrl("https://nexoraappbr.com/api/"))
+        assertEquals("https://nexoraappbr.com/api", normalizeApiBaseUrl("https://backend-laravel-two.vercel.app"))
         assertEquals("http://192.168.0.10:8000", normalizeApiBaseUrl(" http://192.168.0.10:8000/ "))
         assertEquals("http://10.0.2.2:8000", normalizeApiBaseUrl("http://10.0.2.2:8000/"))
     }

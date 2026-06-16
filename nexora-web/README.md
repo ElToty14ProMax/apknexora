@@ -13,7 +13,7 @@ npm run dev
 Default API:
 
 ```env
-VITE_API_URL=https://backend-laravel-two.vercel.app
+VITE_API_URL=https://nexoraappbr.com/api
 ```
 
 The app covers auth, email verification, password recovery, community requests, Pix instructions, receipt uploads, invite sharing, and the admin workspace.

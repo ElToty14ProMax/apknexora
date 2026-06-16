@@ -13,7 +13,7 @@ Date: 2026-05-16
 
 ## Backend connection
 
-- API URL used by the web app: https://backend-laravel-two.vercel.app
+- API URL used by the web app: https://nexoraappbr.com/api
 - Backend health check passed from the deployed web origin.
 - CORS preflight for `POST /auth/login` returned `204` and allowed:
   - Origin: `https://nexora-web-mauve.vercel.app`

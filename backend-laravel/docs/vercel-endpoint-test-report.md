@@ -2,7 +2,9 @@
 
 Run timestamp: 2026-05-16T00:50:16Z (2026-05-15 21:50:16 America/Sao_Paulo)
 
-Production URL: https://backend-laravel-two.vercel.app
+Historical production URL: legacy Vercel backend
+
+Current production API URL: https://nexoraappbr.com/api
 
 Deployment: `dpl_KbiSGyZtPM9sfwY4pYARafx17isR`
 
@@ -36,7 +38,7 @@ The API email endpoints are stable and returned success responses:
 - `POST /auth/resend-verification` -> `200`
 - `POST /auth/recover-password` -> `200`
 
-Actual inbox delivery was not confirmed because the Gmail SMTP credential provided earlier was rejected by Gmail with `535 BadCredentials` during SMTP probing. The backend now handles that failure without breaking login/register/recovery flows, but a fresh valid Gmail app password or another SMTP provider is still required for real email delivery.
+Actual inbox delivery was not confirmed during this historical run because the old SMTP credential was rejected during probing. The backend handled that failure without breaking login/register/recovery flows. Current production mail must use the configured Zoho mailbox for `nexora@nexoraappbr.com`.
 
 ## Endpoint Coverage
 

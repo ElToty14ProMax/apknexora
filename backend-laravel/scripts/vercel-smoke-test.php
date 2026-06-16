@@ -10,7 +10,7 @@ require __DIR__.'/../vendor/autoload.php';
 $app = require __DIR__.'/../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-$baseUrl = rtrim((string) (getenv('NEXORA_PROD_URL') ?: 'https://backend-laravel-two.vercel.app'), '/');
+$baseUrl = rtrim((string) (getenv('NEXORA_PROD_URL') ?: 'https://nexoraappbr.com/api'), '/');
 $runId = gmdate('YmdHis');
 $password = 'CodexTest!'.$runId;
 $adminEmail = 'codex-admin-'.$runId.'@nexoraappbr.com';
@@ -235,7 +235,7 @@ try {
     $support = record($results, 'POST /support-requests', api('POST', '/support-requests', [
         'amountCents' => 2000,
         'dueDays' => 7,
-        'description' => 'Smoke test Vercel '.$runId,
+        'description' => 'Smoke test production '.$runId,
     ], bearer($requesterToken)), [201], fn ($json) => isset($json['id']) && ($json['status'] ?? '') === 'PENDING_ADMIN');
     $supportId = requireJsonValue($support, 'id');
 

@@ -14,7 +14,7 @@ import type {
 } from "./types";
 
 export const DEFAULT_API_URL =
-  import.meta.env.VITE_API_URL || "https://backend-laravel-two.vercel.app";
+  import.meta.env.VITE_API_URL || "https://nexoraappbr.com/api";
 
 export class ApiError extends Error {
   constructor(

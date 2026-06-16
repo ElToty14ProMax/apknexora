@@ -2,7 +2,7 @@ package com.nexora.app
 
 import java.time.LocalDate
 
-internal const val NexoraDefaultBaseUrl = "https://backend-laravel-two.vercel.app"
+internal const val NexoraDefaultBaseUrl = "https://nexoraappbr.com/api"
 
 internal fun normalizeApiBaseUrl(value: String): String {
     val clean = value.trim().trimEnd('/')
@@ -14,6 +14,7 @@ internal fun normalizeApiBaseUrl(value: String): String {
         normalized == "https://www.nexoraappbr.com" -> NexoraDefaultBaseUrl
         normalized == "https://www.nexoraappbr.com/api" -> NexoraDefaultBaseUrl
         normalized == "http://nexoraappbr.com" -> NexoraDefaultBaseUrl
+        normalized == "http://nexoraappbr.com/api" -> NexoraDefaultBaseUrl
         normalized.startsWith("https://backend-laravel-two.vercel.app") -> NexoraDefaultBaseUrl
         normalized == "http://10.0.2.2" -> NexoraDefaultBaseUrl
         else -> clean

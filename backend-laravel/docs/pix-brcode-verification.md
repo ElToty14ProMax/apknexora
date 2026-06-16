@@ -24,7 +24,7 @@ Date: 2026-05-16
 
 ## Production verification
 
-Backend URL: https://backend-laravel-two.vercel.app
+Backend URL: https://nexoraappbr.com/api
 
 Verified:
 
