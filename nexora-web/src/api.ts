@@ -25,6 +25,10 @@ export class ApiError extends Error {
   }
 }
 
+function verificationCodeForApi(code: string): string {
+  return code.replace(/\D/g, "").slice(0, 6);
+}
+
 type RequestOptions = {
   method?: "GET" | "POST";
   body?: unknown;
@@ -91,30 +95,30 @@ export class NexoraApi {
   }
 
   verifyEmail(email: string, code: string) {
-    return this.request<{ ok: boolean; message: string }>("/auth/verify-email", {
+    return this.request<LoginResponse & { message?: string }>("/auth/verify-email", {
       method: "POST",
-      body: { email, code },
+      body: { email: email.trim().toLowerCase(), code: verificationCodeForApi(code) },
     });
   }
 
   resendVerification(email: string) {
     return this.request<{ ok: boolean; message: string }>("/auth/resend-verification", {
       method: "POST",
-      body: { email },
+      body: { email: email.trim().toLowerCase() },
     });
   }
 
   recoverPassword(email: string) {
     return this.request<{ ok: boolean; message: string }>("/auth/recover-password", {
       method: "POST",
-      body: { email },
+      body: { email: email.trim().toLowerCase() },
     });
   }
 
   resetPassword(email: string, code: string, newPassword: string) {
     return this.request<{ ok: boolean; message: string }>("/auth/reset-password", {
       method: "POST",
-      body: { email, code, newPassword },
+      body: { email: email.trim().toLowerCase(), code: verificationCodeForApi(code), newPassword },
     });
   }
 

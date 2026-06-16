@@ -51,6 +51,33 @@ class NexoraUiRulesTest {
     }
 
     @Test
+    fun birthdate_input_maps_cursor_after_automatic_slashes() {
+        assertEquals(BirthdateInputFormat("2", 1), formatBirthdateInput("2", 1))
+        assertEquals(BirthdateInputFormat("25", 2), formatBirthdateInput("25", 2))
+        assertEquals(BirthdateInputFormat("25/0", 4), formatBirthdateInput("250", 3))
+        assertEquals(BirthdateInputFormat("25/05", 5), formatBirthdateInput("25/05", 5))
+        assertEquals(BirthdateInputFormat("25/05/1", 7), formatBirthdateInput("25/051", 6))
+        assertEquals(BirthdateInputFormat("25/05/1990", 10), formatBirthdateInput("25051990", 8))
+    }
+
+    @Test
+    fun bottom_tab_for_tap_maps_x_position_to_expected_tab() {
+        val tabs = listOf(
+            MainTab.PAINEL,
+            MainTab.COMUNIDADE,
+            MainTab.SOLICITAR,
+            MainTab.PERFIL,
+            MainTab.ADMIN,
+        )
+
+        assertEquals(MainTab.PAINEL, bottomTabForTap(tabs, barWidthPx = 1000, tapX = 0f))
+        assertEquals(MainTab.COMUNIDADE, bottomTabForTap(tabs, barWidthPx = 1000, tapX = 250f))
+        assertEquals(MainTab.SOLICITAR, bottomTabForTap(tabs, barWidthPx = 1000, tapX = 500f))
+        assertEquals(MainTab.PERFIL, bottomTabForTap(tabs, barWidthPx = 1000, tapX = 750f))
+        assertEquals(MainTab.ADMIN, bottomTabForTap(tabs, barWidthPx = 1000, tapX = 999f))
+    }
+
+    @Test
     fun encrypted_payload_errors_are_hidden_from_users() {
         val message = friendlyErrorMessage("Payload criptografado invalido.")
 

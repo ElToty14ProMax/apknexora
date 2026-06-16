@@ -95,8 +95,8 @@ Run id: `20260516004926`
 
 Temporary test users:
 
-- `frankegr14+codex-admin-20260516004926@gmail.com`
-- `frankegr14+codex-req-20260516004926@gmail.com`
-- `frankegr14+codex-donor-20260516004926@gmail.com`
+- `codex-admin-20260516004926@nexoraappbr.com`
+- `codex-req-20260516004926@nexoraappbr.com`
+- `codex-donor-20260516004926@nexoraappbr.com`
 
 Because production does not expose verification codes and SMTP delivery is not confirmed yet, the test promoted/verified these temporary users directly in Neon after confirming the public registration endpoints.

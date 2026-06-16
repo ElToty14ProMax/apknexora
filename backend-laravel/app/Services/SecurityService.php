@@ -25,6 +25,41 @@ class SecurityService
         return preg_match(self::RANDOM_PIX_KEY_PATTERN, trim($value)) === 1;
     }
 
+    public function isValidAdminPixKey(string $value): bool
+    {
+        return $this->isValidPixKey($value) || $this->isValidCnpjPixKey($value);
+    }
+
+    public function isValidCnpjPixKey(string $value): bool
+    {
+        $digits = preg_replace('/\D+/', '', trim($value)) ?? '';
+
+        return strlen($digits) === 14;
+    }
+
+    public function normalizeAdminPixKey(string $value): string
+    {
+        $clean = trim($value);
+        $digits = preg_replace('/\D+/', '', $clean) ?? '';
+        if (strlen($digits) !== 14) {
+            return $clean;
+        }
+
+        return sprintf(
+            '%s.%s.%s/%s-%s',
+            substr($digits, 0, 2),
+            substr($digits, 2, 3),
+            substr($digits, 5, 3),
+            substr($digits, 8, 4),
+            substr($digits, 12, 2)
+        );
+    }
+
+    public function normalizeVerificationCode(string $code): string
+    {
+        return preg_replace('/\D+/', '', trim($code)) ?? '';
+    }
+
     public function isValidSha256(string $value): bool
     {
         return preg_match('/^[0-9a-fA-F]{64}$/', trim($value)) === 1;
@@ -42,12 +77,12 @@ class SecurityService
 
     public function hashVerificationCode(string $email, string $code): string
     {
-        return $this->hmac('verify:'.$this->normalizeEmail($email).':'.$code);
+        return $this->hmac('verify:'.$this->normalizeEmail($email).':'.$this->normalizeVerificationCode($code));
     }
 
     public function hashRecoveryCode(string $email, string $code): string
     {
-        return $this->hmac('recover:'.$this->normalizeEmail($email).':'.$code);
+        return $this->hmac('recover:'.$this->normalizeEmail($email).':'.$this->normalizeVerificationCode($code));
     }
 
     public function newVerificationCode(): string

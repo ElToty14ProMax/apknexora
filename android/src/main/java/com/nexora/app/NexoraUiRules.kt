@@ -2,6 +2,24 @@ package com.nexora.app
 
 import java.time.LocalDate
 
+internal const val NexoraDefaultBaseUrl = "https://backend-laravel-two.vercel.app"
+
+internal fun normalizeApiBaseUrl(value: String): String {
+    val clean = value.trim().trimEnd('/')
+    val normalized = clean.lowercase()
+    return when {
+        clean.isBlank() -> NexoraDefaultBaseUrl
+        normalized == "https://nexoraappbr.com" -> NexoraDefaultBaseUrl
+        normalized == "https://nexoraappbr.com/api" -> NexoraDefaultBaseUrl
+        normalized == "https://www.nexoraappbr.com" -> NexoraDefaultBaseUrl
+        normalized == "https://www.nexoraappbr.com/api" -> NexoraDefaultBaseUrl
+        normalized == "http://nexoraappbr.com" -> NexoraDefaultBaseUrl
+        normalized.startsWith("https://backend-laravel-two.vercel.app") -> NexoraDefaultBaseUrl
+        normalized == "http://10.0.2.2" -> NexoraDefaultBaseUrl
+        else -> clean
+    }
+}
+
 internal fun filterContributionHistory(
     history: List<ContributionHistory>,
     filter: String,
@@ -28,6 +46,30 @@ internal fun formatBirthdateInput(value: String): String {
     }
 }
 
+internal data class BirthdateInputFormat(
+    val text: String,
+    val cursor: Int,
+)
+
+internal fun formatBirthdateInput(value: String, cursor: Int): BirthdateInputFormat {
+    val safeCursor = cursor.coerceIn(0, value.length)
+    val digitsBeforeCursor = value
+        .take(safeCursor)
+        .count(Char::isDigit)
+        .coerceIn(0, 8)
+    val text = formatBirthdateInput(value)
+    val mappedCursor = birthdateCursorOffset(digitsBeforeCursor).coerceIn(0, text.length)
+
+    return BirthdateInputFormat(text = text, cursor = mappedCursor)
+}
+
+private fun birthdateCursorOffset(digitCount: Int): Int {
+    val digits = digitCount.coerceIn(0, 8)
+    return digits +
+        (if (digits > 2) 1 else 0) +
+        (if (digits > 4) 1 else 0)
+}
+
 internal fun parseBirthdateInput(value: String): LocalDate? {
     val match = Regex("""^(\d{2})/(\d{2})/(\d{4})$""").matchEntire(value.trim()) ?: return null
     val day = match.groupValues[1].toInt()
@@ -37,6 +79,17 @@ internal fun parseBirthdateInput(value: String): LocalDate? {
 }
 
 internal fun birthdateInputToIso(value: String): String? = parseBirthdateInput(value)?.toString()
+
+internal fun bottomTabForTap(
+    tabOrder: List<MainTab>,
+    barWidthPx: Int,
+    tapX: Float,
+): MainTab? {
+    if (tabOrder.isEmpty() || barWidthPx <= 0) return null
+    val itemWidth = barWidthPx / tabOrder.size.toFloat()
+    val index = (tapX / itemWidth).toInt().coerceIn(0, tabOrder.lastIndex)
+    return tabOrder[index]
+}
 
 internal fun friendlyErrorMessage(message: String): String {
     val normalized = message.lowercase()
@@ -56,6 +109,13 @@ internal fun friendlyErrorMessage(message: String): String {
             normalized.contains("descriptografar dados") ->
             "Dados seguros da conta ficaram inconsistentes. Entre novamente apos a limpeza da base."
 
+        normalized.contains("<!doctype") ||
+            normalized.contains("jsonobject") ||
+            normalized.contains("jsonarray") ||
+            normalized.contains("api respondeu") ||
+            normalized.contains("resposta invalida da api") ->
+            "Nao consegui carregar os dados da Nexora. Confira a conexao e tente novamente."
+
         isConnectionProblem(normalized) ->
             "Problema de conexão. Confira sua internet e tente novamente."
 
@@ -74,6 +134,8 @@ private fun isConnectionProblem(message: String): Boolean =
         "timed out",
         "unexpected end of stream",
         "java.net",
+        "pagina web",
+        "resposta invalida",
         "erro 5",
         "http 5",
     ).any { message.contains(it) }

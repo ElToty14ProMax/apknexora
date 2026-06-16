@@ -76,7 +76,7 @@ data class AppConfig(
                     port = System.getenv("SMTP_PORT")?.toIntOrNull() ?: 587,
                     username = System.getenv("SMTP_USERNAME"),
                     password = System.getenv("SMTP_PASSWORD"),
-                    from = System.getenv("SMTP_FROM") ?: System.getenv("SMTP_USERNAME") ?: "no-reply@nexora.local",
+                    from = System.getenv("SMTP_FROM") ?: "nexora@nexoraappbr.com",
                 ),
             )
         }

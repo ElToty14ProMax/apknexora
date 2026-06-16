@@ -377,7 +377,7 @@ fun JSONObject.toContributionHistory(): ContributionHistory = ContributionHistor
 )
 
 fun formatMoney(cents: Long): String {
-    val format = NumberFormat.getCurrencyInstance(Locale.forLanguageTag(NexoraLanguageStore.current.localeTag))
+    val format = NumberFormat.getCurrencyInstance(Locale("pt", "BR"))
     return format.format(cents / 100.0)
 }
 

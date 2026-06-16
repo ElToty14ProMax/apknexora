@@ -14,6 +14,7 @@ use App\Services\SecurityService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Mail\Message;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -208,13 +209,14 @@ class NexoraController extends Controller
     public function resetPassword(Request $request): JsonResponse
     {
         $email = $this->security->normalizeEmail((string) $request->input('email', ''));
+        $code = $this->security->normalizeVerificationCode((string) $request->input('code', ''));
         $newPassword = (string) $request->input('newPassword', '');
         if (strlen($newPassword) < 8) {
             throw new ApiException(400, 'A nova senha precisa ter pelo menos 8 caracteres.');
         }
         $updated = DB::table('users')
             ->where('email', $email)
-            ->where('password_reset_code_hash', $this->security->hashRecoveryCode($email, trim((string) $request->input('code', ''))))
+            ->where('password_reset_code_hash', $this->security->hashRecoveryCode($email, $code))
             ->where('password_reset_expires_at', '>=', $this->nowMs())
             ->update([
                 'password_hash' => $this->security->hashPassword($newPassword),
@@ -232,9 +234,10 @@ class NexoraController extends Controller
     public function verifyEmail(Request $request): JsonResponse
     {
         $email = $this->security->normalizeEmail((string) $request->input('email', ''));
+        $code = $this->security->normalizeVerificationCode((string) $request->input('code', ''));
         $updated = DB::table('users')
             ->where('email', $email)
-            ->where('verification_code_hash', $this->security->hashVerificationCode($email, trim((string) $request->input('code', ''))))
+            ->where('verification_code_hash', $this->security->hashVerificationCode($email, $code))
             ->where('verification_expires_at', '>=', $this->nowMs())
             ->update([
                 'email_verified' => true,
@@ -244,8 +247,13 @@ class NexoraController extends Controller
         if ($updated !== 1) {
             throw new ApiException(400, 'Código inválido ou expirado.');
         }
+        $user = $this->userByEmail($email);
+        if ($user === null) {
+            throw new ApiException(500, 'Conta verificada, mas a sessão não pôde ser criada.');
+        }
+        $this->audit(null, 'EMAIL_VERIFIED', $user->id);
 
-        return $this->ok('E-mail verificado. Aguarde a validação manual se necessário.');
+        return $this->sessionResponse($user, 'E-mail verificado. Entrada realizada.');
     }
 
     public function login(Request $request): JsonResponse
@@ -267,15 +275,7 @@ class NexoraController extends Controller
             throw new ApiException(403, 'Conta bloqueada para novas ações.');
         }
 
-        $token = $this->security->newToken();
-        DB::table('auth_tokens')->insert([
-            'token_hash' => $this->security->hashToken($token),
-            'user_id' => $user->id,
-            'expires_at' => $this->nowMs() + 7 * 24 * 60 * 60 * 1000,
-            'created_at_ms' => $this->nowMs(),
-        ]);
-
-        return response()->json(['token' => $token, 'profile' => $this->profileResponse($user)]);
+        return $this->sessionResponse($user);
     }
 
     public function me(Request $request): JsonResponse
@@ -934,8 +934,8 @@ class NexoraController extends Controller
             throw new ApiException(409, 'Bootstrap do Super Admin nao esta configurado.');
         }
         $adminPixKey = trim((string) $request->input('adminPixKey', ''));
-        if ($adminPixKey !== '' && ! $this->security->isValidPixKey($adminPixKey)) {
-            throw new ApiException(400, 'Chave Pix aleatoria invalida.');
+        if ($adminPixKey !== '' && ! $this->security->isValidAdminPixKey($adminPixKey)) {
+            throw new ApiException(400, 'Chave Pix administrativa invalida.');
         }
         DB::transaction(function () {
             DB::table('auth_tokens')->delete();
@@ -1351,8 +1351,8 @@ class NexoraController extends Controller
             return;
         }
         try {
-            Mail::raw("Olá, {$name}.\n\nSua transação {$contributionId} na solicitação {$requestCode} expirou porque os comprovantes não foram enviados dentro de {$minutes} minutos.\n\nVocê pode tentar novamente quando uma nova solicitação estiver ativa.\n\nEquipe Nexora", function ($message) use ($to) {
-                $message->to($to)->subject('Transação expirada - Nexora');
+            Mail::raw("Olá, {$name}.\n\nSua transação {$contributionId} na solicitação {$requestCode} expirou porque os comprovantes não foram enviados dentro de {$minutes} minutos.\n\nVocê pode tentar novamente quando uma nova solicitação estiver ativa.\n\nEquipe Nexora", function (Message $message) use ($to) {
+                $this->configureNexoraMail($message, $to, 'Transação expirada - Nexora');
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: expiration email failed', [
@@ -1385,8 +1385,8 @@ class NexoraController extends Controller
         }
 
         try {
-            Mail::raw("Ola, {$name}.\n\n{$body}\n\nEquipe Nexora", function ($message) use ($to, $subject) {
-                $message->to($to)->subject($subject);
+            Mail::raw("Ola, {$name}.\n\n{$body}\n\nEquipe Nexora", function (Message $message) use ($to, $subject) {
+                $this->configureNexoraMail($message, $to, $subject);
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: feedback email failed', [
@@ -1435,8 +1435,8 @@ class NexoraController extends Controller
             return;
         }
         try {
-            Mail::raw("Ola, {$name}.\n\nA transacao {$contributionId} da solicitacao {$requestCode} foi validada pelo administrador.\n\nValor: {$amount}\n\nVoce pode acompanhar o status atualizado dentro do app.\n\nEquipe Nexora", function ($message) use ($to) {
-                $message->to($to)->subject('Transacao validada - Nexora');
+            Mail::raw("Ola, {$name}.\n\nA transacao {$contributionId} da solicitacao {$requestCode} foi validada pelo administrador.\n\nValor: {$amount}\n\nVoce pode acompanhar o status atualizado dentro do app.\n\nEquipe Nexora", function (Message $message) use ($to) {
+                $this->configureNexoraMail($message, $to, 'Transacao validada - Nexora');
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: accepted email failed', [
@@ -1484,8 +1484,8 @@ class NexoraController extends Controller
             return;
         }
         try {
-            Mail::raw("Olá, {$name}.\n\nNão foi possível validar a transação {$contributionId} na solicitação {$requestCode} porque:\n\n{$missingItems}\nPor favor, envie os comprovantes pendientes para que a transação possa ser validada.\n\nEquipe Nexora", function ($message) use ($to) {
-                $message->to($to)->subject('Comprovantes pendentes - Nexora');
+            Mail::raw("Olá, {$name}.\n\nNão foi possível validar a transação {$contributionId} na solicitação {$requestCode} porque:\n\n{$missingItems}\nPor favor, envie os comprovantes pendientes para que a transação possa ser validada.\n\nEquipe Nexora", function (Message $message) use ($to) {
+                $this->configureNexoraMail($message, $to, 'Comprovantes pendentes - Nexora');
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: incomplete notification email failed', [
@@ -1543,8 +1543,8 @@ class NexoraController extends Controller
             return;
         }
         try {
-            Mail::raw("Olá, {$name}.\n\nSua transação {$contributionId} na solicitação {$requestCode} foi recusada pelo administrador.\n\nMotivo: {$reason}\n\nVocê pode tentar novamente quando uma nova solicitação estiver ativa.\n\nEquipe Nexora", function ($message) use ($to) {
-                $message->to($to)->subject('Transação recusada - Nexora');
+            Mail::raw("Olá, {$name}.\n\nSua transação {$contributionId} na solicitação {$requestCode} foi recusada pelo administrador.\n\nMotivo: {$reason}\n\nVocê pode tentar novamente quando uma nova solicitação estiver ativa.\n\nEquipe Nexora", function (Message $message) use ($to) {
+                $this->configureNexoraMail($message, $to, 'Transação recusada - Nexora');
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: rejection email failed', [
@@ -1578,8 +1578,8 @@ class NexoraController extends Controller
             return;
         }
         try {
-            Mail::raw("Olá, {$requester->name}.\n\nNão foi possível validar automaticamente a transação {$contribution->id} da solicitação {$support->public_code} porque {$statusLabel}\n\nUm administrador irá revisar o caso e entrará em contato em breve.\n\nVocê também pode verificar o status na sua página de transações.\n\nEquipe Nexora", function ($message) use ($requester) {
-                $message->to($requester->email)->subject('Verificação pendente de revisão - Nexora');
+            Mail::raw("Olá, {$requester->name}.\n\nNão foi possível validar automaticamente a transação {$contribution->id} da solicitação {$support->public_code} porque {$statusLabel}\n\nUm administrador irá revisar o caso e entrará em contato em breve.\n\nVocê também pode verificar o status na sua página de transações.\n\nEquipe Nexora", function (Message $message) use ($requester) {
+                $this->configureNexoraMail($message, (string) $requester->email, 'Verificação pendente de revisão - Nexora');
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: verification review email failed', [
@@ -1664,7 +1664,7 @@ class NexoraController extends Controller
             'adminFeeDueCents' => (int) $user->admin_fee_due_cents,
             'adminFeeLimitCents' => ReputationRules::adminFeeLimitCents((int) $user->level),
             'pixKeyMasked' => $this->maskPix($this->security->decrypt($user->pix_cipher)),
-            'adminPixKey' => (int) $user->admin_fee_due_cents > 0 ? config('nexora.admin_pix_key') : null,
+            'adminPixKey' => (int) $user->admin_fee_due_cents > 0 ? $this->adminPixKey() : null,
         ];
     }
 
@@ -1706,9 +1706,34 @@ class NexoraController extends Controller
             'supportLimitCents' => ReputationRules::supportLimitCents((int) $user->level),
             'adminFeeDueCents' => (int) $user->admin_fee_due_cents,
             'adminFeeLimitCents' => ReputationRules::adminFeeLimitCents((int) $user->level),
-            'adminPixKey' => config('nexora.admin_pix_key'),
+            'adminPixKey' => $this->adminPixKey(),
             'createdAt' => (int) $user->created_at_ms,
         ];
+    }
+
+    private function sessionResponse(object $user, ?string $message = null): JsonResponse
+    {
+        $token = $this->security->newToken();
+        DB::table('auth_tokens')->insert([
+            'token_hash' => $this->security->hashToken($token),
+            'user_id' => $user->id,
+            'expires_at' => $this->nowMs() + 7 * 24 * 60 * 60 * 1000,
+            'created_at_ms' => $this->nowMs(),
+        ]);
+
+        $payload = ['token' => $token, 'profile' => $this->profileResponse($user)];
+        if ($message !== null) {
+            $payload['message'] = $message;
+        }
+
+        return response()->json($payload);
+    }
+
+    private function adminPixKey(): ?string
+    {
+        $key = $this->security->normalizeAdminPixKey((string) config('nexora.admin_pix_key'));
+
+        return $key !== '' ? $key : null;
     }
 
     private function adminSupportResponse(object $support, object $requester): array
@@ -2217,8 +2242,8 @@ class NexoraController extends Controller
         }
 
         try {
-            Mail::raw("Olá, {$name}.\n\nSeu código de verificação Nexora é: {$code}\n\nO código expira em 30 minutos.", function ($message) use ($to) {
-                $message->to($to)->subject('Código de verificação Nexora');
+            Mail::raw("Olá, {$name}.\n\nSeu código de verificação Nexora é: {$code}\n\nO código expira em 30 minutos.", function (Message $message) use ($to) {
+                $this->configureNexoraMail($message, $to, 'Código de verificação Nexora');
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: verification email failed', [
@@ -2237,8 +2262,8 @@ class NexoraController extends Controller
         }
 
         try {
-            Mail::raw("Seu código de recuperação Nexora é: {$code}\n\nO código expira em 30 minutos.", function ($message) use ($to) {
-                $message->to($to)->subject('Recuperação de acesso Nexora');
+            Mail::raw("Seu código de recuperação Nexora é: {$code}\n\nO código expira em 30 minutos.", function (Message $message) use ($to) {
+                $this->configureNexoraMail($message, $to, 'Recuperação de acesso Nexora');
             });
         } catch (\Throwable $error) {
             Log::error('NEXORA MAIL ERROR: recovery email failed', [
@@ -2251,6 +2276,17 @@ class NexoraController extends Controller
     private function mailConfigured(): bool
     {
         return filled(config('mail.mailers.smtp.username')) && filled(config('mail.mailers.smtp.password'));
+    }
+
+    private function configureNexoraMail(Message $message, string $to, string $subject): void
+    {
+        $fromAddress = (string) (config('mail.from.address') ?: 'nexora@nexoraappbr.com');
+        $fromName = (string) (config('mail.from.name') ?: 'Nexora');
+
+        $message
+            ->from($fromAddress, $fromName)
+            ->to($to)
+            ->subject($subject);
     }
 
     private function maskPix(string $value): string

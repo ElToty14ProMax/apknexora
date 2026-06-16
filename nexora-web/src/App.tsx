@@ -54,6 +54,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
+const androidApkUrl = "/downloads/Nexora-clientes-debug-2026-06-15-emailfix.apk";
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
 
@@ -87,6 +88,22 @@ function formatBirthdateInput(value: string): string {
   if (digits.length <= 2) return digits;
   if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function birthdateCursorOffset(digitCount: number): number {
+  const digits = Math.min(Math.max(digitCount, 0), 8);
+  return digits + (digits > 2 ? 1 : 0) + (digits > 4 ? 1 : 0);
+}
+
+function formatBirthdateInputWithCursor(value: string, cursor: number): { value: string; cursor: number } {
+  const safeCursor = Math.min(Math.max(cursor, 0), value.length);
+  const digitsBeforeCursor = onlyDigits(value.slice(0, safeCursor)).slice(0, 8).length;
+  const formatted = formatBirthdateInput(value);
+
+  return {
+    value: formatted,
+    cursor: Math.min(birthdateCursorOffset(digitsBeforeCursor), formatted.length),
+  };
 }
 
 function parseBirthdateInput(value: string): { date: Date; iso: string } | null {
@@ -439,7 +456,6 @@ function AuthPanel({
   const [recoverCode, setRecoverCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [registerPasswordCache, setRegisterPasswordCache] = useState("");
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
@@ -525,9 +541,9 @@ function AuthPanel({
     }
     setBusy(true);
     try {
-      await api.register({ ...register, cpf: cpfDigits, birthdate: parsedBirthdate.iso });
-      setVerifyEmail(register.email);
-      setRegisterPasswordCache(register.password);
+      const email = register.email.trim().toLowerCase();
+      await api.register({ ...register, email, cpf: cpfDigits, birthdate: parsedBirthdate.iso, pixKey: register.pixKey.trim() });
+      setVerifyEmail(email);
       setMode("verify");
       showNotice("Cadastro criado. Digite o código enviado por e-mail.");
     } catch (error) {
@@ -541,16 +557,9 @@ function AuthPanel({
     event.preventDefault();
     setBusy(true);
     try {
-      await api.verifyEmail(verifyEmail, verifyCode.trim());
-      showNotice("Email verificado.");
-      const cachedPassword = registerPasswordCache || (verifyEmail.trim() === loginIdentifier.trim() ? loginPassword : "");
-      if (cachedPassword) {
-        const login = await api.login(verifyEmail, cachedPassword);
-        onLogin(login);
-      } else {
-        setLoginIdentifier(verifyEmail);
-        setMode("login");
-      }
+      const login = await api.verifyEmail(verifyEmail, verifyCode);
+      onLogin(login);
+      showNotice("E-mail verificado. Sessao iniciada.");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Código inválido.", "error");
     } finally {
@@ -593,6 +602,10 @@ function AuthPanel({
           <Download size={18} />
           Instalar app
         </button>
+        <a className="secondary install-button" href={androidApkUrl} download>
+          <Download size={18} />
+          Baixar APK Android
+        </a>
       </div>
 
       <div className="auth-card">
@@ -651,7 +664,15 @@ function AuthPanel({
               Data de nascimento
               <input
                 value={register.birthdate}
-                onChange={(event) => setRegister({ ...register, birthdate: formatBirthdateInput(event.target.value) })}
+                onChange={(event) => {
+                  const input = event.currentTarget;
+                  const formatted = formatBirthdateInputWithCursor(
+                    input.value,
+                    input.selectionStart ?? input.value.length,
+                  );
+                  setRegister({ ...register, birthdate: formatted.value });
+                  requestAnimationFrame(() => input.setSelectionRange(formatted.cursor, formatted.cursor));
+                }}
                 inputMode="numeric"
                 placeholder="DD/MM/AAAA"
                 maxLength={10}
@@ -694,9 +715,10 @@ function AuthPanel({
               Código
               <input
                 value={verifyCode}
-                onChange={(event) => setVerifyCode(event.target.value)}
+                onChange={(event) => setVerifyCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                maxLength={6}
                 required
               />
             </label>
@@ -764,7 +786,7 @@ function AuthFaq() {
         <p>Después de transferir, sube la foto desde tu historial para que la administración valide el apoyo.</p>
       </details>
       <p className="faq-contact">
-        Contacto: <a href="mailto:frankegr14@gmail.com">frankegr14@gmail.com</a> · <a href="https://wa.me/5511913463247">+5511913463247</a>
+        Contacto: <a href="mailto:nexora@nexoraappbr.com">nexora@nexoraappbr.com</a> · <a href="https://wa.me/5511913463247">+5511913463247</a>
       </p>
     </section>
   );
@@ -1154,8 +1176,8 @@ function ProfileView({ profile, showNotice }: { profile: Profile; showNotice: (t
         <Metric label="Taxa acumulada" value={`${money(profile.adminFeeDueCents)} / ${money(profile.adminFeeLimitCents)}`} tone={profile.adminFeeDueCents > 0 ? "warn" : "ok"} />
         {profile.adminPixKey ? (
           <>
-            <p className="muted">Envie a taxa acumulada para a conta administrativa e aguarde a baixa pelo admin.</p>
-            <CopyField label="Pix aleatório do admin" value={profile.adminPixKey} showNotice={showNotice} />
+            <p className="muted">Envie a taxa acumulada para a conta PJ da Nexora e aguarde a baixa pelo admin.</p>
+            <CopyField label="Pix da taxa administrativa (CNPJ PJ)" value={profile.adminPixKey} showNotice={showNotice} />
           </>
         ) : (
           <p className="muted">Sem taxa pendente para envio.</p>
@@ -1484,7 +1506,7 @@ function AdminView({
             ["Buff", `${selectedUser.buffBps / 100}%`],
             ["Limite", money(selectedUser.supportLimitCents)],
             ["Taxa acumulada", `${money(selectedUser.adminFeeDueCents)} / ${money(selectedUser.adminFeeLimitCents)}`],
-            ["Pix aleatório do admin", selectedUser.adminPixKey || "-"],
+            ["Pix administrativo da conta PJ", selectedUser.adminPixKey || "-"],
             ["Convite", selectedUser.inviteCode],
             ["Convidado por", selectedUser.invitedByPublicId || "-"],
             ["Convidados", selectedUser.invitedCount],

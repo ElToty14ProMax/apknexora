@@ -6,13 +6,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class MainTab { PAINEL, COMUNIDADE, SOLICITAR, PERFIL, ADMIN }
 
 data class NexoraUiState(
-    val baseUrl: String = "https://backend-laravel-two.vercel.app",
+    val baseUrl: String = NexoraDefaultBaseUrl,
     val profile: Profile? = null,
     val dashboard: Dashboard? = null,
     val community: List<SupportRequest> = emptyList(),
@@ -27,6 +29,7 @@ data class NexoraUiState(
     val actionInProgress: String? = null,
     val refreshing: Boolean = false,
     val refreshingAction: String? = null,
+    val refreshingTabs: Set<MainTab> = emptySet(),
     val message: String? = null,
     val messageIsError: Boolean = false,
     val pixInstructions: List<PixInstruction> = emptyList(),
@@ -40,11 +43,15 @@ data class NexoraUiState(
 
 class NexoraViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("nexora", 0)
-    private val defaultBaseUrl = "https://backend-laravel-two.vercel.app"
-    private val savedBaseUrl = prefs.getString("base_url", null)
+    private val defaultBaseUrl = NexoraDefaultBaseUrl
+    private val savedBaseUrl = prefs.getString("base_url", null)?.trim()
+    private val initialBaseUrl = savedBaseUrl
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::normalizeApiBaseUrl)
+        ?: defaultBaseUrl
     private val savedLanguage = AppLanguage.fromCode(prefs.getString("language", null))
     private val api = ApiClient(
-        baseUrl = savedBaseUrl?.takeUnless { it.startsWith("http://10.0.2.2") } ?: defaultBaseUrl,
+        baseUrl = initialBaseUrl,
         token = prefs.getString("token", null),
     )
 
@@ -55,6 +62,9 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         private set
 
     init {
+        if (savedBaseUrl != null && savedBaseUrl != api.baseUrl) {
+            prefs.edit().putString("base_url", api.baseUrl).apply()
+        }
         NexoraLanguageStore.current = savedLanguage
     }
 
@@ -85,17 +95,12 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setTab(tab: MainTab) {
+        if (state.tab == tab) return
         state = state.copy(tab = tab, message = null, messageIsError = false)
-        when (tab) {
-            MainTab.COMUNIDADE -> refreshCommunity()
-            MainTab.PERFIL -> refreshProfileAndMine()
-            MainTab.ADMIN -> refreshAdmin()
-            else -> Unit
-        }
     }
 
     fun updateBaseUrl(value: String) {
-        api.baseUrl = value.trim()
+        api.baseUrl = normalizeApiBaseUrl(value)
         prefs.edit().putString("base_url", api.baseUrl).apply()
         state = state.copy(baseUrl = api.baseUrl)
     }
@@ -107,18 +112,28 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun register(name: String, email: String, cpf: String, birthdate: String, pixKey: String, password: String, inviteCode: String?) = launchUi {
-        val result = api.register(name, email, cpf, birthdate, pixKey, password, inviteCode)
+        val registrationEmail = email.trim().lowercase()
+        val result = api.register(name, registrationEmail, cpf, birthdate, pixKey, password, inviteCode)
         val message = if (result.all { it.isDigit() } && result.length == 6) {
             "Cadastro criado. Código dev: $result"
         } else {
             result
         }
-        state = state.copy(message = message, messageIsError = false, registrationEmail = email)
+        state = state.copy(message = message, messageIsError = false, registrationEmail = registrationEmail)
     }
 
     fun verifyEmail(email: String, code: String) = launchUi {
-        api.verifyEmail(email, code)
-        state = state.copy(message = "E-mail verificado. Volte para entrar.", messageIsError = false)
+        val profile = api.verifyEmail(email, code)
+        prefs.edit().putString("token", api.token).apply()
+        state = state.copy(
+            profile = profile,
+            tab = MainTab.PAINEL,
+            hasSavedSession = true,
+            sessionLocked = false,
+            message = "E-mail verificado. Entrada realizada.",
+            messageIsError = false,
+        )
+        loadAll()
     }
 
     fun resendVerification(email: String) = launchUi {
@@ -177,16 +192,21 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun refreshAll() = launchUi(refreshAction = "Atualizando painel") {
+    fun refreshAll() = launchUi(refreshAction = "Atualizando painel", refreshTab = MainTab.PAINEL) {
         loadAll()
     }
 
-    private suspend fun loadAll() {
-        val profile = api.me()
-        val dashboard = api.dashboard()
-        val community = api.community()
-        val mine = api.myRequests()
-        val history = api.contributionHistory()
+    private suspend fun loadAll() = coroutineScope {
+        val profileRequest = async { api.me() }
+        val dashboardRequest = async { api.dashboard() }
+        val communityRequest = async { api.community() }
+        val mineRequest = async { api.myRequests() }
+        val historyRequest = async { api.contributionHistory() }
+        val profile = profileRequest.await()
+        val dashboard = dashboardRequest.await()
+        val community = communityRequest.await()
+        val mine = mineRequest.await()
+        val history = historyRequest.await()
         state = state.copy(
             profile = profile,
             dashboard = dashboard,
@@ -200,19 +220,22 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         if (profile.role == "ADMIN" || profile.role == "SUPER_ADMIN") loadAdmin()
     }
 
-    fun refreshCommunity() = launchUi(refreshAction = "Atualizando comunidade") {
+    fun refreshCommunity() = launchUi(refreshAction = "Atualizando comunidade", refreshTab = MainTab.COMUNIDADE) {
         state = state.copy(community = api.community())
     }
 
-    fun refreshProfileAndMine() = launchUi(refreshAction = "Atualizando perfil") {
+    fun refreshProfileAndMine() = launchUi(refreshAction = "Atualizando perfil", refreshTab = MainTab.PERFIL) {
         loadProfileAndMine()
     }
 
-    private suspend fun loadProfileAndMine() {
+    private suspend fun loadProfileAndMine() = coroutineScope {
+        val profileRequest = async { api.me() }
+        val mineRequest = async { api.myRequests() }
+        val historyRequest = async { api.contributionHistory() }
         state = state.copy(
-            profile = api.me(),
-            myRequests = api.myRequests(),
-            contributionHistory = api.contributionHistory(),
+            profile = profileRequest.await(),
+            myRequests = mineRequest.await(),
+            contributionHistory = historyRequest.await(),
         )
     }
 
@@ -263,15 +286,22 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         state = state.copy(message = message, messageIsError = true)
     }
 
-    fun refreshAdmin(silent: Boolean = false) = launchUi(silent = silent, refreshAction = if (silent) null else "Atualizando admin") {
+    fun refreshAdmin(silent: Boolean = false) = launchUi(
+        silent = silent,
+        refreshAction = if (silent) null else "Atualizando admin",
+        refreshTab = MainTab.ADMIN,
+    ) {
         loadAdmin()
     }
 
-    private suspend fun loadAdmin() {
+    private suspend fun loadAdmin() = coroutineScope {
+        val usersRequest = async { api.adminUsers() }
+        val supportRequestsRequest = async { api.adminSupportRequests() }
+        val contributionsRequest = async { api.adminContributions() }
         state = state.copy(
-            adminUsers = api.adminUsers(),
-            adminRequests = api.adminSupportRequests(),
-            adminContributions = api.adminContributions(),
+            adminUsers = usersRequest.await(),
+            adminRequests = supportRequestsRequest.await(),
+            adminContributions = contributionsRequest.await(),
         )
     }
 
@@ -306,6 +336,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
     private fun launchUi(
         silent: Boolean = false,
         refreshAction: String? = null,
+        refreshTab: MainTab? = null,
         block: suspend () -> Unit,
     ) {
         viewModelScope.launch {
@@ -314,6 +345,7 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
                     state.copy(
                         refreshing = true,
                         refreshingAction = refreshAction,
+                        refreshingTabs = refreshTab?.let { state.refreshingTabs + it } ?: state.refreshingTabs,
                         message = null,
                         messageIsError = false,
                     )
@@ -341,7 +373,12 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
                 }
             } finally {
                 state = if (refreshAction != null) {
-                    state.copy(refreshing = false, refreshingAction = null)
+                    val remainingTabs = refreshTab?.let { state.refreshingTabs - it } ?: state.refreshingTabs
+                    state.copy(
+                        refreshing = remainingTabs.isNotEmpty(),
+                        refreshingAction = if (remainingTabs.isEmpty()) null else state.refreshingAction,
+                        refreshingTabs = remainingTabs,
+                    )
                 } else {
                     state.copy(loading = false, loadingAction = null)
                 }

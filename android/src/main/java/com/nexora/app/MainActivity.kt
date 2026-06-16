@@ -27,16 +27,19 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -64,6 +67,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -93,12 +97,18 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -128,7 +138,7 @@ private val NexoraText = Color(0xFFF4F4F4)
 private val NexoraMuted = Color(0xFF8A8A93)
 private val NexoraRed = Color(0xFFFF4D4D)
 private const val NexoraDownloadUrl = "https://nexora-web-mauve.vercel.app"
-private const val NexoraContactEmail = "frankegr14@gmail.com"
+private const val NexoraContactEmail = "nexora@nexoraappbr.com"
 private const val NexoraContactPhone = "+5511913463247"
 
 class MainActivity : FragmentActivity() {
@@ -394,6 +404,9 @@ private fun AuthScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var cpf by rememberSaveable { mutableStateOf("") }
     var birthdate by rememberSaveable { mutableStateOf("") }
+    var birthdateField by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
     var pixKey by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
@@ -472,7 +485,7 @@ private fun AuthScreen(
         }
         AuthMode.VERIFY -> when {
             email.isBlank() || !email.contains("@") -> fail("email", uiText("registrationEmailRequired", language))
-            code.length != 6 -> fail("code", uiText("sixDigitCodeRequired", language))
+            code.filter(Char::isDigit).length != 6 -> fail("code", uiText("sixDigitCodeRequired", language))
             else -> {
                 invalidFields = emptySet()
                 true
@@ -487,7 +500,7 @@ private fun AuthScreen(
         }
         AuthMode.RECOVER_RESET -> when {
             email.isBlank() || !email.contains("@") -> fail("email", uiText("accountEmailRequired", language))
-            code.length != 6 -> fail("code", uiText("sixDigitCodeRequired", language))
+            code.filter(Char::isDigit).length != 6 -> fail("code", uiText("sixDigitCodeRequired", language))
             newPassword.length < 8 -> fail("newPassword", uiText("newPasswordMin", language))
             confirmNewPassword != newPassword -> fail("confirmNewPassword", uiText("passwordsDontMatch", language))
             else -> {
@@ -502,12 +515,20 @@ private fun AuthScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .statusBarsPadding()
+            .navigationBarsPadding()
             .imePadding()
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top,
     ) {
-        NexoraLogo()
+        Box(Modifier.fillMaxWidth()) {
+            Box(Modifier.align(Alignment.TopCenter)) {
+                NexoraLogo()
+            }
+            Box(Modifier.align(Alignment.TopEnd)) {
+                LanguageSelector(language = language, onSelect = viewModel::setLanguage)
+            }
+        }
         Spacer(Modifier.height(48.dp))
         
         Text(
@@ -537,10 +558,6 @@ private fun AuthScreen(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 32.dp),
             textAlign = TextAlign.Start,
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            LanguageSelector(language = language, onSelect = viewModel::setLanguage)
-        }
-        Spacer(Modifier.height(18.dp))
         NexoraPanel {
             if (mode == AuthMode.REGISTER) {
                 NexoraInput(uiText("fullName", language), name, { name = it; clearInvalid("name") }, isError = "name" in invalidFields)
@@ -551,9 +568,14 @@ private fun AuthScreen(
                 Spacer(Modifier.height(16.dp))
                 NexoraInput(
                     uiText("birthdate", language),
-                    birthdate,
+                    birthdateField,
                     {
-                        birthdate = formatBirthdateInput(it)
+                        val formatted = formatBirthdateInput(it.text, it.selection.end)
+                        birthdate = formatted.text
+                        birthdateField = TextFieldValue(
+                            text = formatted.text,
+                            selection = TextRange(formatted.cursor),
+                        )
                         clearInvalid("birthdate")
                     },
                     placeholder = uiText("datePlaceholder", language),
@@ -574,7 +596,7 @@ private fun AuthScreen(
                     AuthMode.VERIFY -> {
                         NexoraInput(uiText("email", language), email, { email = it; clearInvalid("email") }, keyboardType = KeyboardType.Email, isError = "email" in invalidFields)
                         Spacer(Modifier.height(16.dp))
-                        NexoraInput(uiText("code", language), code, { if (it.length <= 6) code = it; clearInvalid("code") }, keyboardType = KeyboardType.Number, isError = "code" in invalidFields)
+                        NexoraInput(uiText("code", language), code, { code = it.filter(Char::isDigit).take(6); clearInvalid("code") }, keyboardType = KeyboardType.Number, isError = "code" in invalidFields)
                         Spacer(Modifier.height(16.dp))
                     }
                     AuthMode.RECOVER_SEND -> {
@@ -588,9 +610,9 @@ private fun AuthScreen(
                             uiText("code", language),
                             code,
                             {
-                                if (it.length <= 6) code = it
+                                code = it.filter(Char::isDigit).take(6)
                                 clearInvalid("code")
-                                if (it.length < 6) {
+                                if (code.length < 6) {
                                     newPassword = ""
                                     confirmNewPassword = ""
                                     invalidFields = invalidFields - "newPassword" - "confirmNewPassword"
@@ -791,20 +813,25 @@ private fun MainShell(state: NexoraUiState, viewModel: NexoraViewModel) {
         containerColor = NexoraBlack,
         bottomBar = { NexoraBottomBar(state, viewModel) },
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(NexoraBlack),
         ) {
-            when (state.tab) {
-                MainTab.PAINEL -> DashboardScreen(state, viewModel)
-                MainTab.COMUNIDADE -> CommunityScreen(state, viewModel)
-                MainTab.SOLICITAR -> RequestScreen(state, viewModel)
-                MainTab.PERFIL -> ProfileScreen(state, viewModel)
-                MainTab.ADMIN -> AdminScreen(state, viewModel)
-            }
+            MainTabContent(state, viewModel)
         }
+    }
+}
+
+@Composable
+private fun MainTabContent(state: NexoraUiState, viewModel: NexoraViewModel) {
+    when (state.tab) {
+        MainTab.PAINEL -> DashboardScreen(state, viewModel)
+        MainTab.COMUNIDADE -> CommunityScreen(state, viewModel)
+        MainTab.SOLICITAR -> RequestScreen(state, viewModel)
+        MainTab.PERFIL -> ProfileScreen(state, viewModel)
+        MainTab.ADMIN -> AdminScreen(state, viewModel)
     }
 }
 
@@ -818,33 +845,71 @@ private fun NexoraBottomBar(state: NexoraUiState, viewModel: NexoraViewModel) {
         add(Triple(MainTab.PERFIL, uiText("tabProfile", state.language), Icons.Filled.Person))
         if (profile?.role in setOf("ADMIN", "SUPER_ADMIN")) add(Triple(MainTab.ADMIN, uiText("tabAdmin", state.language), Icons.Filled.AdminPanelSettings))
     }
-    NavigationBar(
-        containerColor = Color(0xFF0A0A0A),
+    val tabOrder = items.map { it.first }
+
+    Surface(
+        color = Color(0xFF0A0A0A),
         contentColor = NexoraText,
-        modifier = Modifier.navigationBarsPadding(),
+        tonalElevation = 0.dp,
     ) {
-        items.forEach { (tab, label, icon) ->
-            NavigationBarItem(
-                selected = state.tab == tab,
-                onClick = { viewModel.setTab(tab) },
-                icon = { Icon(icon, contentDescription = label) },
-                label = {
-                    Text(
-                        text = label,
-                        maxLines = 2,
-                        overflow = TextOverflow.Clip,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        textAlign = TextAlign.Center,
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = NexoraGreen,
-                    selectedTextColor = NexoraGreen,
-                    unselectedIconColor = NexoraMuted,
-                    unselectedTextColor = NexoraMuted,
-                    indicatorColor = Color.Transparent,
-                ),
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .pointerInput(tabOrder) {
+                        detectTapGestures { offset ->
+                            bottomTabForTap(tabOrder, size.width, offset.x)?.let(viewModel::setTab)
+                        }
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items.forEach { (tab, label, icon) ->
+                    val selected = state.tab == tab
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .height(80.dp)
+                            .semantics {
+                                this.selected = selected
+                                contentDescription = label
+                                onClick {
+                                    viewModel.setTab(tab)
+                                    true
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = null,
+                                tint = if (selected) NexoraGreen else NexoraMuted,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = label,
+                                color = if (selected) NexoraGreen else NexoraMuted,
+                                maxLines = 2,
+                                overflow = TextOverflow.Clip,
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsBottomHeight(WindowInsets.navigationBars),
             )
         }
     }
@@ -855,20 +920,16 @@ private fun NexoraBottomBar(state: NexoraUiState, viewModel: NexoraViewModel) {
 private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     val profile = state.profile ?: return
     val dashboard = state.dashboard
-    var historyFilter by rememberSaveable { mutableStateOf("ALL") }
-    val filteredHistory = remember(state.contributionHistory, historyFilter) {
-        filterContributionHistory(state.contributionHistory, historyFilter)
-    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
+        contentPadding = PaddingValues(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
             item {
                 HeaderRow(
                     profile = profile,
-                    refreshing = state.refreshing,
+                    refreshing = MainTab.PAINEL in state.refreshingTabs,
                     onRefresh = viewModel::refreshAll,
                     language = state.language,
                     onLanguageSelect = viewModel::setLanguage,
@@ -932,7 +993,7 @@ private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
+        contentPadding = PaddingValues(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
             item {
@@ -940,7 +1001,7 @@ private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     uiText("communityTitle", state.language),
                     uiText("communitySubtitle", state.language),
                     viewModel::refreshCommunity,
-                    refreshing = state.refreshing,
+                    refreshing = MainTab.COMUNIDADE in state.refreshingTabs,
                     language = state.language,
                     onLanguageSelect = viewModel::setLanguage,
                 )
@@ -1056,7 +1117,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val progress = (profile.xpIntoLevel.toFloat() / profile.xpRequiredThisLevel.toFloat()).coerceIn(0f, 1f)
-    val inviteLink = "https://nexora-web-mauve.vercel.app?invite=${profile.inviteCode}"
+    val inviteLink = "$NexoraDownloadUrl?invite=${profile.inviteCode}"
     val inviteText = uiText("inviteShareText", state.language)
         .replace("{code}", profile.inviteCode)
         .replace("{link}", inviteLink)
@@ -1082,7 +1143,7 @@ private fun ProfileScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                 uiText("profileTitle", state.language),
                 profile.publicId,
                 viewModel::refreshProfileAndMine,
-                refreshing = state.refreshing,
+                refreshing = MainTab.PERFIL in state.refreshingTabs,
                 language = state.language,
                 onLanguageSelect = viewModel::setLanguage,
             )
@@ -1339,7 +1400,7 @@ private fun AdminScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     uiText("adminTitle", state.language),
                     uiText("adminSubtitle", state.language),
                     { viewModel.refreshAdmin() },
-                    refreshing = state.refreshing,
+                    refreshing = MainTab.ADMIN in state.refreshingTabs,
                     language = state.language,
                     onLanguageSelect = viewModel::setLanguage,
                 )
@@ -2026,7 +2087,7 @@ private fun HeaderRow(
             NexoraLogo(compact = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 LanguageSelector(language = language, onSelect = onLanguageSelect)
-                RefreshIconButton(refreshing = refreshing, onRefresh = onRefresh, tint = NexoraMuted)
+                RefreshIconButton(refreshing = refreshing, onRefresh = onRefresh, tint = NexoraGreen)
             }
         }
         Text(uiText("tagline"), color = NexoraMuted, fontSize = 14.sp, letterSpacing = 1.sp)
@@ -2123,7 +2184,7 @@ private fun NexoraLogo(compact: Boolean = false) {
 @Composable
 private fun NexoraLogoImage(modifier: Modifier = Modifier) {
     Image(
-        painter = painterResource(id = R.drawable.nexora_logo_centered_1024),
+        painter = painterResource(id = R.drawable.nexora_logo_centered_384),
         contentDescription = "Nexora",
         modifier = modifier,
         contentScale = ContentScale.Fit,
@@ -2234,6 +2295,52 @@ private fun NexoraInput(
             }
         } else null,
         keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType),
+        shape = RoundedCornerShape(8.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = NexoraText,
+            unfocusedTextColor = NexoraText,
+            disabledTextColor = NexoraText,
+            focusedBorderColor = activeAccent,
+            unfocusedBorderColor = if (isError) NexoraRed else Color(0xFF282828),
+            disabledBorderColor = if (isError) NexoraRed else Color(0xFF282828),
+            focusedLabelColor = activeAccent,
+            unfocusedLabelColor = if (isError) NexoraRed else NexoraMuted,
+            disabledLabelColor = if (isError) NexoraRed else NexoraMuted,
+            cursorColor = activeAccent,
+            focusedContainerColor = NexoraField,
+            unfocusedContainerColor = NexoraField,
+            disabledContainerColor = NexoraField,
+        ),
+    )
+}
+
+@Composable
+private fun NexoraInput(
+    label: String,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    minLines: Int = 1,
+    isError: Boolean = false,
+    readOnly: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val activeAccent = if (isError) NexoraRed else NexoraGreen
+    val enabledField = enabled && !readOnly
+
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        placeholder = placeholder?.let { { Text(it) } },
+        modifier = modifier.fillMaxWidth(),
+        minLines = minLines,
+        enabled = enabledField,
+        readOnly = readOnly,
+        isError = isError,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         shape = RoundedCornerShape(8.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = NexoraText,
@@ -2702,8 +2809,8 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "shareInvite" to "Compartilhar convite",
         "share" to "Compartilhar",
         "adminFeeAccumulated" to "Taxa administrativa acumulada",
-        "sendAdminFeeHelp" to "Envie a taxa para o Pix do admin e aguarde a baixa administrativa.",
-        "adminFeePix" to "Pix da taxa administrativa",
+        "sendAdminFeeHelp" to "Envie a taxa para a conta PJ da Nexora e aguarde a baixa administrativa.",
+        "adminFeePix" to "Pix da taxa administrativa (CNPJ PJ)",
         "noPendingFee" to "Sem taxa pendente para envio.",
         "logout" to "Sair",
         "wait" to "Aguarde",
@@ -2729,7 +2836,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "fullUserData" to "Dados completos do usuário",
         "role" to "Função",
         "accumulatedFee" to "Taxa acumulada",
-        "adminRandomPix" to "Pix aleatório do admin",
+        "adminRandomPix" to "Pix administrativo da conta PJ",
         "invite" to "Convite",
         "invitedBy" to "Convidado por",
         "invitedUsers" to "Convidados",
@@ -2815,7 +2922,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "biometricTitle" to "Entrar com digital",
         "biometricSubtitle" to "Desbloqueie sua sessão Nexora salva",
         "registerCreatedDev" to "Cadastro criado. Código dev",
-        "emailVerifiedLogin" to "E-mail verificado. Volte para entrar.",
+        "emailVerifiedLogin" to "E-mail verificado. Entrada realizada.",
         "newCodeSent" to "Se o cadastro existir, um novo código será enviado.",
         "recoverySent" to "Se o e-mail existir, enviaremos instruções de recuperação.",
         "passwordUpdatedSignedIn" to "Senha atualizada. Entrada realizada.",
@@ -3001,8 +3108,8 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "shareInvite" to "Compartir invitacion",
         "share" to "Compartir",
         "adminFeeAccumulated" to "Tasa administrativa acumulada",
-        "sendAdminFeeHelp" to "Envia la tasa al Pix del admin y espera la baja administrativa.",
-        "adminFeePix" to "Pix de la tasa administrativa",
+        "sendAdminFeeHelp" to "Envia la tasa a la cuenta PJ de Nexora y espera la baja administrativa.",
+        "adminFeePix" to "Pix de la tasa administrativa (CNPJ PJ)",
         "noPendingFee" to "Sin tasa pendiente para enviar.",
         "logout" to "Salir",
         "wait" to "Espera",
@@ -3028,7 +3135,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "fullUserData" to "Datos completos del usuario",
         "role" to "Funcion",
         "accumulatedFee" to "Tasa acumulada",
-        "adminRandomPix" to "Pix aleatorio del admin",
+        "adminRandomPix" to "Pix administrativo de la cuenta PJ",
         "invite" to "Invitacion",
         "invitedBy" to "Invitado por",
         "invitedUsers" to "Invitados",
@@ -3114,7 +3221,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "biometricTitle" to "Entrar con huella",
         "biometricSubtitle" to "Desbloquea tu sesion Nexora guardada",
         "registerCreatedDev" to "Registro creado. Codigo dev",
-        "emailVerifiedLogin" to "E-mail verificado. Vuelve para entrar.",
+        "emailVerifiedLogin" to "E-mail verificado. Entrada realizada.",
         "newCodeSent" to "Si el registro existe, se enviara un nuevo codigo.",
         "recoverySent" to "Si el e-mail existe, enviaremos instrucciones de recuperacion.",
         "passwordUpdatedSignedIn" to "Contrasena actualizada. Entrada realizada.",
@@ -3300,8 +3407,8 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "shareInvite" to "Share invite",
         "share" to "Share",
         "adminFeeAccumulated" to "Accumulated admin fee",
-        "sendAdminFeeHelp" to "Send the fee to the admin Pix and wait for admin clearance.",
-        "adminFeePix" to "Admin fee Pix",
+        "sendAdminFeeHelp" to "Send the fee to Nexora's business account and wait for admin clearance.",
+        "adminFeePix" to "Admin fee Pix (business CNPJ)",
         "noPendingFee" to "No pending fee to send.",
         "logout" to "Log out",
         "wait" to "Wait",
@@ -3327,7 +3434,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "fullUserData" to "Full user data",
         "role" to "Role",
         "accumulatedFee" to "Accumulated fee",
-        "adminRandomPix" to "Admin random Pix",
+        "adminRandomPix" to "Business account admin Pix",
         "invite" to "Invite",
         "invitedBy" to "Invited by",
         "invitedUsers" to "Invited users",
@@ -3413,7 +3520,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "biometricTitle" to "Sign in with fingerprint",
         "biometricSubtitle" to "Unlock your saved Nexora session",
         "registerCreatedDev" to "Account created. Dev code",
-        "emailVerifiedLogin" to "Email verified. Go back to sign in.",
+        "emailVerifiedLogin" to "Email verified. Signed in.",
         "newCodeSent" to "If the account exists, a new code will be sent.",
         "recoverySent" to "If the email exists, we will send recovery instructions.",
         "passwordUpdatedSignedIn" to "Password updated. Signed in.",

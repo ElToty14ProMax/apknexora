@@ -282,6 +282,7 @@ nav {
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--text);
+  text-decoration: none;
 }
 
 .toast {

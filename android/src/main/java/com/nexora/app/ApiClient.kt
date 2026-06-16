@@ -9,7 +9,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
-class ApiError(message: String) : Exception(message)
+class ApiError(message: String, val statusCode: Int? = null) : Exception(message)
 
 class ApiClient(
     var baseUrl: String,
@@ -24,15 +24,16 @@ class ApiClient(
         password: String,
         inviteCode: String?,
     ): String = withContext(Dispatchers.IO) {
+        val cleanEmail = normalizeEmailForApi(email)
         val response = requestObject(
             path = "/auth/register",
             method = "POST",
             body = JSONObject()
                 .put("name", name)
-                .put("email", email)
+                .put("email", cleanEmail)
                 .put("cpf", cpf)
                 .put("birthdate", birthdate)
-                .put("pixKey", pixKey)
+                .put("pixKey", pixKey.trim())
                 .put("password", password)
                 .put("inviteCode", inviteCode ?: ""),
             auth = false,
@@ -45,20 +46,22 @@ class ApiClient(
             ?: "Cadastro realizado com sucesso."
     }
 
-    suspend fun verifyEmail(email: String, code: String) = withContext(Dispatchers.IO) {
-        requestObject(
+    suspend fun verifyEmail(email: String, code: String): Profile = withContext(Dispatchers.IO) {
+        val response = requestObject(
             path = "/auth/verify-email",
             method = "POST",
-            body = JSONObject().put("email", email).put("code", code),
+            body = JSONObject().put("email", normalizeEmailForApi(email)).put("code", verificationCodeForApi(code)),
             auth = false,
         )
+        token = response.getString("token")
+        response.getJSONObject("profile").toProfile()
     }
 
     suspend fun resendVerification(email: String) = withContext(Dispatchers.IO) {
         requestObject(
             path = "/auth/resend-verification",
             method = "POST",
-            body = JSONObject().put("email", email),
+            body = JSONObject().put("email", normalizeEmailForApi(email)),
             auth = false,
         )
     }
@@ -67,7 +70,7 @@ class ApiClient(
         requestObject(
             path = "/auth/recover-password",
             method = "POST",
-            body = JSONObject().put("email", email),
+            body = JSONObject().put("email", normalizeEmailForApi(email)),
             auth = false,
         )
     }
@@ -77,8 +80,8 @@ class ApiClient(
             path = "/auth/reset-password",
             method = "POST",
             body = JSONObject()
-                .put("email", email)
-                .put("code", code)
+                .put("email", normalizeEmailForApi(email))
+                .put("code", verificationCodeForApi(code))
                 .put("newPassword", newPassword),
             auth = false,
         )
@@ -88,7 +91,7 @@ class ApiClient(
         val response = requestObject(
             path = "/auth/login",
             method = "POST",
-            body = JSONObject().put("identifier", identifier).put("password", password),
+            body = JSONObject().put("identifier", identifier.trim()).put("password", password),
             auth = false,
         )
         token = response.getString("token")
@@ -265,9 +268,9 @@ class ApiClient(
         method: String = "GET",
         body: JSONObject? = null,
         auth: Boolean = true,
-    ): JSONObject = JSONObject(requestRaw(path, method, body, auth).ifBlank { "{}" })
+    ): JSONObject = parseObject(requestRaw(path, method, body, auth).ifBlank { "{}" })
 
-    private fun requestArray(path: String): JSONArray = JSONArray(requestRaw(path, "GET", null, true))
+    private fun requestArray(path: String): JSONArray = parseArray(requestRaw(path, "GET", null, true))
 
     private fun requestRaw(path: String, method: String, body: JSONObject?, auth: Boolean): String {
         val cleanBase = baseUrl.trim().trimEnd('/')
@@ -294,15 +297,53 @@ class ApiClient(
         }.orEmpty()
         connection.disconnect()
         if (status !in 200..299) {
-            val message = runCatching {
-                val json = JSONObject(text)
-                if (json.isNull("error")) null else json.optString("error")
-            }.getOrNull()
-            throw ApiError(message?.takeIf { it.isNotBlank() && it != "null" } ?: "Erro $status")
+            val message = parseErrorMessage(text)
+                ?: if (looksLikeHtml(text)) {
+                    "A API respondeu uma pagina web em vez de dados. Confira a URL do servidor."
+                } else {
+                    "Erro $status"
+                }
+            throw ApiError(message, status)
         }
         return text
+    }
+
+    private fun parseObject(text: String): JSONObject =
+        runCatching { JSONObject(text.trim()) }
+            .getOrElse { throw invalidJsonResponse(text) }
+
+    private fun parseArray(text: String): JSONArray =
+        runCatching { JSONArray(text.trim()) }
+            .getOrElse { throw invalidJsonResponse(text) }
+
+    private fun parseErrorMessage(text: String): String? =
+        runCatching {
+            val json = JSONObject(text)
+            when {
+                !json.isNull("error") -> json.optString("error")
+                !json.isNull("message") -> json.optString("message")
+                else -> null
+            }
+        }.getOrNull()?.takeIf { it.isNotBlank() && it != "null" }
+
+    private fun invalidJsonResponse(text: String): ApiError {
+        val message = if (looksLikeHtml(text)) {
+            "A API respondeu uma pagina web em vez de dados. Confira a URL do servidor."
+        } else {
+            "Resposta invalida da API. Confira a URL do servidor."
+        }
+        return ApiError(message)
+    }
+
+    private fun looksLikeHtml(text: String): Boolean {
+        val clean = text.trimStart().lowercase()
+        return clean.startsWith("<!doctype") || clean.startsWith("<html")
     }
 }
 
 private inline fun <T> JSONArray.mapObjects(block: (JSONObject) -> T): List<T> =
     List(length()) { index -> block(getJSONObject(index)) }
+
+private fun normalizeEmailForApi(email: String): String = email.trim().lowercase()
+
+private fun verificationCodeForApi(code: String): String = code.filter(Char::isDigit).take(6)
