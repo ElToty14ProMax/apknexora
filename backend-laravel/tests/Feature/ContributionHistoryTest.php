@@ -12,9 +12,9 @@ class ContributionHistoryTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_my_contributions_keeps_expired_items_in_user_history(): void
+    public function test_contributions_remain_active_before_30_minutes_and_expire_afterwards(): void
     {
-        config(['nexora.contribution_expiration_minutes' => 5]);
+        config(['nexora.contribution_expiration_minutes' => 30]);
 
         $security = app(SecurityService::class);
         $now = (int) floor(microtime(true) * 1000);
@@ -47,16 +47,30 @@ class ContributionHistoryTest extends TestCase
         ]);
 
         DB::table('contributions')->insert([
-            'id' => 'contribution-history',
-            'request_id' => 'support-history',
-            'donor_id' => $donorId,
-            'amount_cents' => 1000,
-            'status' => 'PENDING_RECEIPTS',
-            'created_at_ms' => $now - 600000,
-            'verification_status' => null,
-            'admin_review_required' => false,
-            'has_sender_receipt' => false,
-            'has_receiver_receipt' => false,
+            [
+                'id' => 'contribution-active',
+                'request_id' => 'support-history',
+                'donor_id' => $donorId,
+                'amount_cents' => 1000,
+                'status' => 'PENDING_RECEIPTS',
+                'created_at_ms' => $now - (29 * 60 * 1000),
+                'verification_status' => null,
+                'admin_review_required' => false,
+                'has_sender_receipt' => false,
+                'has_receiver_receipt' => false,
+            ],
+            [
+                'id' => 'contribution-expired',
+                'request_id' => 'support-history',
+                'donor_id' => $donorId,
+                'amount_cents' => 1000,
+                'status' => 'PENDING_RECEIPTS',
+                'created_at_ms' => $now - (31 * 60 * 1000),
+                'verification_status' => null,
+                'admin_review_required' => false,
+                'has_sender_receipt' => false,
+                'has_receiver_receipt' => false,
+            ],
         ]);
 
         $response = $this
@@ -65,7 +79,11 @@ class ContributionHistoryTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonFragment([
-            'id' => 'contribution-history',
+            'id' => 'contribution-active',
+            'status' => 'PENDING_RECEIPTS',
+        ]);
+        $response->assertJsonFragment([
+            'id' => 'contribution-expired',
             'status' => 'EXPIRED',
         ]);
     }
