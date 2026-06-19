@@ -11,4 +11,4 @@ Artisan::command('inspire', function () {
 Artisan::command('nexora:check-expired', function () {
     $result = app(NexoraController::class)->checkExpiredContributions();
     $this->info($result->getData(true)['message'] ?? 'Check complete.');
-})->purpose('Check and expire contributions older than 24h without receipt');
+})->purpose('Check and expire contributions after the configured window without receipt');

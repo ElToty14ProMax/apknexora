@@ -45,6 +45,12 @@ sudo -u www-data php artisan migrate --force
 sudo -u www-data php artisan config:cache
 sudo -u www-data php artisan view:cache
 
+PHP_BIN="$(command -v php)"
+SCHEDULER_FILE="/etc/cron.d/nexora-scheduler"
+printf '* * * * * www-data cd %s && %s artisan schedule:run >> /dev/null 2>&1\n' "${BACKEND_DIR}" "${PHP_BIN}" | sudo tee "${SCHEDULER_FILE}" >/dev/null
+sudo chmod 644 "${SCHEDULER_FILE}"
+sudo systemctl enable --now cron
+
 if grep -Eq "Route::.*(fn \\(|function \\()" routes/web.php routes/api.php; then
   echo "Skipping php artisan route:cache because closure-based HTTP routes are present."
 else
