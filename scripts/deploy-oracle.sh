@@ -33,23 +33,23 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-php artisan config:clear
-php artisan cache:clear
-php artisan route:clear
-php artisan view:clear
-php artisan migrate --force
-php artisan config:cache
-php artisan view:cache
+sudo chown -R www-data:www-data storage bootstrap/cache
+sudo find storage bootstrap/cache -type d -exec chmod 775 {} \;
+sudo find storage bootstrap/cache -type f -exec chmod 664 {} \;
+
+sudo -u www-data php artisan config:clear
+sudo -u www-data php artisan cache:clear
+sudo -u www-data php artisan route:clear
+sudo -u www-data php artisan view:clear
+sudo -u www-data php artisan migrate --force
+sudo -u www-data php artisan config:cache
+sudo -u www-data php artisan view:cache
 
 if grep -Eq "Route::.*(fn \\(|function \\()" routes/web.php routes/api.php; then
   echo "Skipping php artisan route:cache because closure-based HTTP routes are present."
 else
-  php artisan route:cache
+  sudo -u www-data php artisan route:cache
 fi
-
-sudo chown -R www-data:www-data storage bootstrap/cache
-sudo find storage bootstrap/cache -type d -exec chmod 775 {} \;
-sudo find storage bootstrap/cache -type f -exec chmod 664 {} \;
 
 cd "${FRONTEND_DIR}"
 
@@ -67,8 +67,17 @@ fi
 
 npm run build
 
+if systemctl cat php8.3-fpm.service >/dev/null 2>&1; then
+  PHP_FPM_SERVICE="php8.3-fpm"
+elif systemctl cat php8.2-fpm.service >/dev/null 2>&1; then
+  PHP_FPM_SERVICE="php8.2-fpm"
+else
+  echo "ERROR: No supported PHP-FPM service was found."
+  exit 1
+fi
+
 sudo nginx -t
-sudo systemctl restart php8.2-fpm
+sudo systemctl restart "${PHP_FPM_SERVICE}"
 sudo systemctl restart nginx
 
 echo "Nexora Oracle VPS deployment completed successfully."
