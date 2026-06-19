@@ -160,14 +160,14 @@ Even if you do that, a plain root clone into `/var/www/nexora` is still not enou
 
 Oracle VPS:
 
-- IP: `137.131.241.247`
+- IP: `136.248.72.243`
 - user: `ubuntu`
-- key: `D:\Toty\Trabalho\Nexora\ssh-key-2026-06-04.key`
+- key: `D:\Toty\Trabalho\Nexora\ssh-key-2026-06-10.key`
 
 From Windows PowerShell:
 
 ```powershell
-ssh -i "D:\Toty\Trabalho\Nexora\ssh-key-2026-06-04.key" ubuntu@137.131.241.247
+ssh -i "D:\Toty\Trabalho\Nexora\ssh-key-2026-06-10.key" ubuntu@136.248.72.243
 ```
 
 ## 7. Clone the full repo into `/var/www/nexora`
