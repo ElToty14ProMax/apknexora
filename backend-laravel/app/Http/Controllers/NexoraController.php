@@ -535,38 +535,43 @@ class NexoraController extends Controller
         $cleanBase64 = str_contains($imageBase64, 'base64,') ? substr($imageBase64, strpos($imageBase64, 'base64,') + 7) : $imageBase64;
         $ocrResult = $analyzer->analyze($cleanBase64, $mime);
 
-        if (! ($ocrResult['isPixReceipt'] ?? false)) {
-            throw new ApiException(400, implode(' ', $ocrResult['validationErrors'] ?? [
-                'A imagem enviada não parece ser um comprovante Pix válido.'
-            ]));
-        }
-
-        if ((int) ($ocrResult['amountCents'] ?? 0) !== (int) $contribution->amount_cents) {
-            throw new ApiException(409, 'O valor identificado no comprovante não confere com o valor deste apoio.');
-        }
-
-        $transactionId = $ocrResult['transactionId']
-            ? $this->normalizeTransactionId($ocrResult['transactionId'])
-            : null;
-
         $ocrTransactionId = $ocrResult['transactionId'];
         $ocrAmountCents = $ocrResult['amountCents'];
         $ocrConfidence = $ocrResult['confidence'];
         $ocrProvider = $ocrService->getProvider();
         $ocrRawText = $ocrResult['rawText'] ?? '';
 
-        if (empty($transactionId)) {
-            throw new ApiException(400, 'ID da transação não detectado na imagem.');
+        $ocrWarnings = $ocrResult['validationErrors'] ?? [];
+        $ocrLooksValid = (bool) ($ocrResult['isPixReceipt'] ?? false);
+        $ocrAmountMatches = $ocrAmountCents !== null
+            && (int) $ocrAmountCents === (int) $contribution->amount_cents;
+
+        if ($ocrAmountCents !== null && ! $ocrAmountMatches) {
+            $ocrWarnings[] = 'O valor identificado pelo OCR não confere com o valor deste apoio.';
         }
-        if (strlen($transactionId) < 6 || strlen($transactionId) > 80) {
-            throw new ApiException(400, 'ID da transação inválido.');
-        }
-        if ($contribution->transaction_id !== null && $contribution->transaction_id !== $transactionId) {
-            throw new ApiException(409, 'Este apoio já possui outro ID de transação.');
-        }
-        $duplicated = DB::table('contributions')->where('transaction_id', $transactionId)->where('id', '<>', $contribution->id)->first();
-        if ($duplicated !== null) {
-            throw new ApiException(409, 'ID de transação já cadastrado. Ele aparece apenas uma vez no histórico.');
+
+        $transactionId = $contribution->transaction_id;
+        $candidateTransactionId = $ocrTransactionId
+            ? $this->normalizeTransactionId((string) $ocrTransactionId)
+            : '';
+
+        if ($ocrLooksValid && $ocrAmountMatches && $candidateTransactionId !== '') {
+            if (strlen($candidateTransactionId) < 6 || strlen($candidateTransactionId) > 80) {
+                $ocrWarnings[] = 'O ID lido pelo OCR tem formato inválido.';
+            } elseif ($transactionId !== null && $transactionId !== $candidateTransactionId) {
+                $ocrWarnings[] = 'O OCR encontrou um ID diferente do já associado ao apoio.';
+            } else {
+                $duplicated = DB::table('contributions')
+                    ->where('transaction_id', $candidateTransactionId)
+                    ->where('id', '<>', $contribution->id)
+                    ->exists();
+
+                if ($duplicated) {
+                    $ocrWarnings[] = 'O ID lido pelo OCR já aparece em outro apoio.';
+                } else {
+                    $transactionId = $candidateTransactionId;
+                }
+            }
         }
 
         $updateData = [
@@ -634,6 +639,9 @@ class NexoraController extends Controller
                 'provider' => $ocrProvider,
                 'date' => $ocrResult['date'] ?? null,
                 'time' => $ocrResult['time'] ?? null,
+                'accepted' => $ocrLooksValid && $ocrAmountMatches && $transactionId !== null,
+                'manualReview' => ! ($ocrLooksValid && $ocrAmountMatches && $transactionId !== null),
+                'validationErrors' => array_values(array_unique($ocrWarnings)),
             ] : null,
             'ocrComparison' => $this->getOcrComparison($final),
         ], 201);
@@ -1157,9 +1165,6 @@ class NexoraController extends Controller
             $contribution = $this->contributionById($id);
             if ($contribution === null || $contribution->status !== 'PENDING_ADMIN') {
                 throw new ApiException(409, 'Apoio não está aguardando validação.');
-            }
-            if (! $this->evidenceComplete($contribution)) {
-                throw new ApiException(409, 'Validacao exige as duas fotos do Pix: envio e recebimento.');
             }
             $support = $this->supportById($contribution->request_id);
             if (! in_array($support->status, ['OPEN', 'FUNDED'], true)) {

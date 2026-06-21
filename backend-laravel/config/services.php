@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    'ocr' => [
+        'provider' => env('OCR_PROVIDER', ''),
+        'google_api_key' => env('GOOGLE_VISION_API_KEY', ''),
+        'openai_api_key' => env('OPENAI_API_KEY', ''),
+        'ocrspace_api_key' => env('OCR_SPACE_API_KEY', ''),
+        'ocrspace_language' => env('OCR_SPACE_LANGUAGE', 'por'),
+        'ocrspace_engine' => env('OCR_SPACE_ENGINE', '2'),
+        'tesseract_cmd' => env('TESSERACT_CMD', 'tesseract'),
+        'tesseract_language' => env('TESSERACT_LANGUAGE', 'por'),
+        'tesseract_psm' => env('TESSERACT_PSM', '3'),
+        'allow_mock' => env('OCR_ALLOW_MOCK', false),
+        'mock_text' => env('OCR_MOCK_TEXT', ''),
+    ],
+
 ];

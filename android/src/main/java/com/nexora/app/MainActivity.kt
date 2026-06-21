@@ -22,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -95,9 +96,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -113,6 +117,8 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -1050,6 +1056,7 @@ private fun RequestScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
     var description by remember { mutableStateOf("") }
     var invalidField by remember { mutableStateOf<String?>(null) }
     val eligible = profile.level >= 2 && profile.xp >= 100
+    val limitText = formatMoney(profile.supportLimitCents)
 
     Column(
         modifier = Modifier
@@ -1064,12 +1071,7 @@ private fun RequestScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
             language = state.language,
             onLanguageSelect = viewModel::setLanguage,
         )
-        NexoraPanel(border = true, background = NexoraDarkGreen) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(uiText("yourLimitUpper", state.language), color = NexoraGreen, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text(formatMoney(profile.supportLimitCents), color = NexoraGreen, fontSize = 30.sp, fontWeight = FontWeight.Black)
-            }
-        }
+        RequestLimitPanel(label = uiText("yourLimitUpper", state.language), value = limitText)
         if (!eligible) {
             Spacer(Modifier.height(12.dp))
             MessageStrip(uiText("requestLocked", state.language))
@@ -1108,6 +1110,88 @@ private fun RequestScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RequestLimitPanel(label: String, value: String) {
+    NexoraPanel(border = true, background = NexoraDarkGreen) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                label,
+                color = NexoraGreen,
+                fontWeight = FontWeight.Black,
+                fontSize = 13.sp,
+                letterSpacing = 2.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+                textAlign = TextAlign.Center,
+            )
+            AutoFitSingleLineText(
+                text = value,
+                color = NexoraGreen,
+                maxFontSize = 30.sp,
+                minFontSize = 16.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AutoFitSingleLineText(
+    text: String,
+    color: Color,
+    maxFontSize: TextUnit,
+    minFontSize: TextUnit,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier,
+    textAlign: TextAlign = TextAlign.Start,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+
+    BoxWithConstraints(modifier = modifier) {
+        val maxWidthPx = with(density) { maxWidth.roundToPx() }
+        val fittedFontSize = remember(text, maxWidthPx, maxFontSize, minFontSize, fontWeight, density.density, density.fontScale) {
+            if (maxWidthPx <= 0) {
+                minFontSize
+            } else {
+                generateSequence(maxFontSize.value) { current ->
+                    (current - 1f).takeIf { it >= minFontSize.value }
+                }.firstOrNull { size ->
+                    val result = textMeasurer.measure(
+                        text = text,
+                        style = TextStyle(fontSize = size.sp, fontWeight = fontWeight),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        constraints = Constraints(maxWidth = maxWidthPx),
+                    )
+                    !result.didOverflowWidth
+                }?.sp ?: minFontSize
+            }
+        }
+
+        Text(
+            text,
+            color = color,
+            fontSize = fittedFontSize,
+            lineHeight = fittedFontSize,
+            fontWeight = fontWeight,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+            textAlign = textAlign,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -3883,11 +3967,7 @@ private fun AdminContributionCard(contribution: AdminContribution, viewModel: Ne
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             DetailAction(onDetails)
             if (contribution.status == "PENDING_ADMIN") {
-                if (contribution.evidenceComplete) {
-                    SmallAction(uiText("validate"), NexoraGreen, loading = viewModel.state.actionInProgress == "contribution-confirm-${contribution.id}") { viewModel.adminConfirmContribution(contribution.id) }
-                } else {
-                    Text(uiText("waitingPhotos"), color = NexoraMuted, fontSize = 12.sp, fontStyle = FontStyle.Italic)
-                }
+                SmallAction(uiText("validate"), NexoraGreen, loading = viewModel.state.actionInProgress == "contribution-confirm-${contribution.id}") { viewModel.adminConfirmContribution(contribution.id) }
                 SmallAction(uiText("reject"), NexoraRed, loading = viewModel.state.actionInProgress == "contribution-reject-${contribution.id}") { viewModel.adminRejectContribution(contribution.id) }
             }
         }

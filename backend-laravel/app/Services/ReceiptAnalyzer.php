@@ -1,6 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
+
+use Illuminate\Support\Str;
 
 class ReceiptAnalyzer
 {
@@ -31,21 +35,23 @@ class ReceiptAnalyzer
 
     private function looksLikePixReceipt(string $text): bool
     {
-        $normalized = mb_strtolower($text);
+        $normalized = Str::ascii(mb_strtolower($text));
+
+        if (! str_contains($normalized, 'pix')) {
+            return false;
+        }
 
         $pixSignals = [
-            'pix',
             'comprovante',
-            'transferência',
             'transferencia',
             'pagamento',
             'endtoendid',
-            'id da transação',
             'id da transacao',
+            'codigo da transacao',
+            'detalhes da transacao',
             'valor',
             'r$',
             'recebedor',
-            'beneficiário',
             'beneficiario',
             'pagador',
         ];
@@ -58,7 +64,7 @@ class ReceiptAnalyzer
             }
         }
 
-        return $hits >= 4;
+        return $hits >= 2;
     }
 
     private function validationErrors(string $text, ?string $transactionId, ?int $amountCents): array

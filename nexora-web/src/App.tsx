@@ -54,7 +54,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
-const androidApkUrl = "/downloads/Nexora-clientes-debug-2026-06-16-vps-api.apk";
+const androidApkUrl = "/downloads/Nexora-clientes-debug-2026-06-20-ocrfix.apk";
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
 
@@ -1473,7 +1473,7 @@ function AdminView({
                       <div className="table-actions-inner">
                         <ActionButton busy={false} onClick={() => setSelectedContribution(item)} label="Ver detalhes" />
                         {item.status === "PENDING_ADMIN" && (
-                          <ActionButton busy={busyAction === `contrib-${item.id}`} disabled={!item.evidenceComplete} onClick={() => adminAction(`contrib-${item.id}`, `/admin/contributions/${item.id}/confirm`, `Validar Pix de ${item.requestPublicCode}?`)} label="Validar Pix" />
+                          <ActionButton busy={busyAction === `contrib-${item.id}`} onClick={() => adminAction(`contrib-${item.id}`, `/admin/contributions/${item.id}/confirm`, `Validar Pix de ${item.requestPublicCode}?${item.evidenceComplete ? "" : " Os comprovantes estão incompletos e a aprovação será manual."}`)} label={item.evidenceComplete ? "Validar Pix" : "Aprovar manualmente"} />
                         )}
                         {item.status === "PENDING_ADMIN" && (
                           <ActionButton danger busy={busyAction === `contrib-reject-${item.id}`} onClick={() => adminAction(`contrib-reject-${item.id}`, `/admin/contributions/${item.id}/reject`, `Recusar apoio ${item.requestPublicCode}?`, { reason: "Recusado pelo admin." })} label="Recusar apoio" />

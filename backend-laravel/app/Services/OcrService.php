@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
@@ -12,19 +14,27 @@ class OcrService
     private string $openAiApiKey;
     private string $ocrSpaceApiKey;
     private string $tesseractCmd;
+    private string $tesseractLanguage;
+    private string $tesseractPsm;
+    private string $ocrSpaceLanguage;
+    private string $ocrSpaceEngine;
 
     public function __construct()
     {
-        $this->googleApiKey = env('GOOGLE_VISION_API_KEY', '');
-        $this->openAiApiKey = env('OPENAI_API_KEY', '');
-        $this->ocrSpaceApiKey = env('OCR_SPACE_API_KEY', '');
-        $this->tesseractCmd = env('TESSERACT_CMD', 'tesseract');
+        $this->googleApiKey = (string) config('services.ocr.google_api_key', '');
+        $this->openAiApiKey = (string) config('services.ocr.openai_api_key', '');
+        $this->ocrSpaceApiKey = (string) config('services.ocr.ocrspace_api_key', '');
+        $this->tesseractCmd = (string) config('services.ocr.tesseract_cmd', 'tesseract');
+        $this->tesseractLanguage = (string) config('services.ocr.tesseract_language', 'por');
+        $this->tesseractPsm = (string) config('services.ocr.tesseract_psm', '3');
+        $this->ocrSpaceLanguage = (string) config('services.ocr.ocrspace_language', 'por');
+        $this->ocrSpaceEngine = (string) config('services.ocr.ocrspace_engine', '2');
         $this->provider = $this->resolveProvider();
     }
 
     private function resolveProvider(): string
     {
-        $configured = strtolower(trim((string) env('OCR_PROVIDER', '')));
+        $configured = strtolower(trim((string) config('services.ocr.provider', '')));
 
         if ($configured === 'tesseract') {
             return 'tesseract';
@@ -99,9 +109,11 @@ class OcrService
             file_put_contents($path, $imageData);
 
             $cmd = sprintf(
-                '%s -l por %s stdout 2>&1',
+                '%s %s stdout -l %s --psm %s 2>&1',
                 escapeshellcmd($this->tesseractCmd),
-                escapeshellarg($path)
+                escapeshellarg($path),
+                escapeshellarg($this->tesseractLanguage),
+                escapeshellarg($this->tesseractPsm)
             );
 
             $output = shell_exec($cmd);
@@ -154,11 +166,11 @@ class OcrService
                 'apikey' => $this->ocrSpaceApiKey,
             ])->asForm()->timeout(25)->post('https://api.ocr.space/parse/image', [
                 'base64Image' => "data:{$mimeType};base64,{$imageBase64}",
-                'language' => env('OCR_SPACE_LANGUAGE', 'por'),
+                'language' => $this->ocrSpaceLanguage,
                 'isOverlayRequired' => 'false',
                 'detectOrientation' => 'true',
                 'scale' => 'true',
-                'OCREngine' => env('OCR_SPACE_ENGINE', '2'),
+                'OCREngine' => $this->ocrSpaceEngine,
             ]);
 
             if ($response->failed()) {
@@ -168,6 +180,14 @@ class OcrService
             }
 
             $data = $response->json();
+            if (isset($data['error']) || isset($data['details'])) {
+                Log::warning('OCR.space API rejected the request', [
+                    'error' => $data['error'] ?? null,
+                    'details' => $data['details'] ?? null,
+                ]);
+
+                return '';
+            }
             if (($data['IsErroredOnProcessing'] ?? false) === true) {
                 Log::warning('OCR.space processing error', ['message' => $data['ErrorMessage'] ?? null]);
 
@@ -216,12 +236,12 @@ class OcrService
 
     private function mockExtract(): string
     {
-        return (string) env('OCR_MOCK_TEXT', '');
+        return (string) config('services.ocr.mock_text', '');
     }
 
     private function mockAllowed(): bool
     {
         return app()->environment(['local', 'testing'])
-            || filter_var(env('OCR_ALLOW_MOCK', false), FILTER_VALIDATE_BOOLEAN);
+            || filter_var(config('services.ocr.allow_mock', false), FILTER_VALIDATE_BOOLEAN);
     }
 }
