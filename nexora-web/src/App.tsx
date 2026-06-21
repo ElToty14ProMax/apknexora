@@ -54,7 +54,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
-const androidApkUrl = "/downloads/Nexora-clientes-debug-2026-06-20-ocrfix.apk";
+const androidApkUrl = "/downloads/Nexora-clientes-debug-2026-06-20-ocrfix-v2.apk";
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
 
