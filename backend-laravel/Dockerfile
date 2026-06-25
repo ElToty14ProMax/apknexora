@@ -12,7 +12,8 @@ RUN composer install \
 FROM php:8.3-fpm-bookworm
 
 WORKDIR /var/www/nexora
-ENV COMPOSER_ALLOW_SUPERUSER=1
+ENV COMPOSER_ALLOW_SUPERUSER=1 \
+    DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -23,7 +24,8 @@ RUN apt-get update \
         tesseract-ocr \
         tesseract-ocr-por \
         unzip \
-    && docker-php-ext-install -j"$(nproc)" mbstring opcache pdo_pgsql \
+    && docker-php-ext-configure opcache --disable-opcache-jit \
+    && docker-php-ext-install -j1 mbstring opcache pdo_pgsql \
     && apt-mark manual libonig5 libpq5 \
     && apt-get purge -y --auto-remove libonig-dev libpq-dev \
     && rm -rf /var/lib/apt/lists/*
