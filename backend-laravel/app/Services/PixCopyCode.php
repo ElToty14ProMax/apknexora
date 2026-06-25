@@ -38,7 +38,12 @@ class PixCopyCode
             return strtolower($clean);
         }
 
-        throw new \InvalidArgumentException('Chave Pix do destinatario deve ser a chave aleatoria gerada pelo banco.');
+        $digits = preg_replace('/\D+/', '', $clean) ?? '';
+        if (strlen($digits) === 14) {
+            return $digits;
+        }
+
+        throw new \InvalidArgumentException('Chave Pix do destinatario deve ser uma chave aleatoria ou CNPJ da plataforma.');
     }
 
     private static function tag(string $id, string $value): string

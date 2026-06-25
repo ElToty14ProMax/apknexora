@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\PixCopyCode;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 
@@ -247,11 +248,16 @@ try {
         'amountCents' => 2000,
     ], bearer($donorToken)), [201], function ($json) use ($requesterEmail) {
         $code = is_array($json) ? (string) ($json['pixCopyCode'] ?? '') : '';
-        $adminPixKey = (string) config('nexora.admin_pix_key');
+        $supportPixKey = (string) config('nexora.support_pix_key');
+        try {
+            $normalizedSupportPixKey = PixCopyCode::normalizePixKey($supportPixKey);
+        } catch (\InvalidArgumentException) {
+            $normalizedSupportPixKey = '';
+        }
         return isset($json['contributionId'])
             && $code !== ''
-            && str_contains($code, $requesterEmail)
-            && ($adminPixKey === '' || ! str_contains($code, $adminPixKey))
+            && ($normalizedSupportPixKey === '' || str_contains($code, $normalizedSupportPixKey))
+            && ! str_contains($code, $requesterEmail)
             && ($json['receiverPixKey'] ?? 'not-empty') === '';
     });
     $contributionId = requireJsonValue($contribution, 'contributionId');

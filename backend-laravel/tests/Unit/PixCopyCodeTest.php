@@ -23,16 +23,17 @@ class PixCopyCodeTest extends TestCase
         $this->assertSame($payload, $withoutCrc.$this->crc16($withoutCrc));
     }
 
-    public function test_it_only_accepts_random_bank_pix_keys(): void
+    public function test_it_accepts_random_or_platform_cnpj_pix_keys(): void
     {
         $this->assertSame('550e8400-e29b-41d4-a716-446655440000', PixCopyCode::normalizePixKey('550E8400-E29B-41D4-A716-446655440000'));
+        $this->assertSame('67018679000117', PixCopyCode::normalizePixKey('67.018.679/0001-17'));
 
         foreach (['11987654321', '119.766.392-47', 'pix@example.com', '+5511987654321'] as $value) {
             try {
                 PixCopyCode::normalizePixKey($value);
                 $this->fail("Expected {$value} to be rejected.");
             } catch (\InvalidArgumentException $exception) {
-                $this->assertStringContainsString('chave aleatoria', $exception->getMessage());
+                $this->assertStringContainsString('chave aleatoria ou CNPJ', $exception->getMessage());
             }
         }
     }

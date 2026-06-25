@@ -544,7 +544,7 @@ class NexoraController extends Controller
         $amountCents = (int) $request->input('amountCents', 0);
         $available = $this->availableContributionCents($support);
         if ($amountCents < ReputationRules::MIN_CONTRIBUTION_CENTS) {
-            throw new ApiException(400, 'Doacao minima de R$ 5,00.');
+            throw new ApiException(400, 'Doação mínima de R$ 5,00.');
         }
         if ($amountCents > $available) {
             if ($available <= 0) {
@@ -567,7 +567,7 @@ class NexoraController extends Controller
         }
         $total = (int) $request->input('amountCents', 0);
         if ($total < ReputationRules::MIN_CONTRIBUTION_CENTS) {
-            throw new ApiException(400, 'Doacao minima de R$ 5,00.');
+            throw new ApiException(400, 'Doação mínima de R$ 5,00.');
         }
 
         $created = DB::transaction(function () use ($donor, $total) {
@@ -618,7 +618,7 @@ class NexoraController extends Controller
             'allocatedAmountCents' => $allocated,
             'unallocatedAmountCents' => max($total - $allocated, 0),
             'instructions' => $instructions,
-            'message' => 'Pix fracionado por ordem cronológica. Use cada código Pix do destinatário e envie os comprovantes depois da transferência.',
+            'message' => 'Pix fracionado por ordem cronológica. Use cada código Pix gerado pela Nexora e envie os comprovantes depois da transferência.',
         ], 201);
     }
 
@@ -1910,6 +1910,20 @@ class NexoraController extends Controller
         return $key !== '' ? $key : null;
     }
 
+    private function supportPixKey(): string
+    {
+        $key = trim((string) config('nexora.support_pix_key'));
+        if ($key === '') {
+            throw new ApiException(500, 'Chave Pix da plataforma não configurada.');
+        }
+
+        try {
+            return PixCopyCode::normalizePixKey($key);
+        } catch (\InvalidArgumentException) {
+            throw new ApiException(500, 'Chave Pix da plataforma deve ser aleatória ou CNPJ PJ para preservar a privacidade.');
+        }
+    }
+
     private function adminSupportResponse(object $support, object $requester): array
     {
         return [
@@ -1936,19 +1950,14 @@ class NexoraController extends Controller
     private function instructionResponse(object $contribution, object $support): array
     {
         $reference = $this->security->paymentReference($contribution->id);
-        $requester = $this->userById($support->requester_id);
-        if ($requester === null) {
-            throw new ApiException(404, 'Destinatário da solicitação não encontrado.');
-        }
-        $receiverPixKey = trim($this->security->decrypt($requester->pix_cipher));
-        $receiverName = (string) $requester->name;
+        $platformPixKey = $this->supportPixKey();
 
         try {
             $pixCode = PixCopyCode::build(
-                $receiverPixKey,
+                $platformPixKey,
                 (int) $contribution->amount_cents,
                 $reference,
-                $receiverName,
+                (string) config('nexora.pix_merchant_name', 'NEXORA'),
                 (string) config('nexora.pix_merchant_city'),
             );
         } catch (\InvalidArgumentException $error) {
@@ -1962,7 +1971,7 @@ class NexoraController extends Controller
             'receiverPixKey' => '',
             'pixCopyCode' => $pixCode,
             'amountCents' => (int) $contribution->amount_cents,
-            'message' => 'Use o código Pix copia-e-cola para fazer a transferência. Depois, quem enviou e quem recebeu devem anexar a foto do comprovante para revisão.',
+            'message' => 'Use o código Pix copia-e-cola gerado pela Nexora para fazer a transferência. Depois, quem enviou e quem recebeu devem anexar a foto do comprovante para revisão.',
         ];
     }
 
@@ -2146,7 +2155,7 @@ class NexoraController extends Controller
     private function insertContribution(string $requestId, string $donorId, int $amountCents): object
     {
         if ($amountCents < ReputationRules::MIN_CONTRIBUTION_CENTS) {
-            throw new ApiException(400, 'Doacao minima de R$ 5,00.');
+            throw new ApiException(400, 'Doação mínima de R$ 5,00.');
         }
 
         $row = [

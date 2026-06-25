@@ -87,9 +87,9 @@ Actual inbox delivery was not confirmed during this historical run because the o
 - Contribution instructions returned `receiverPixKey: ""`.
 - The receiver visible identifier was the public request code, not the receiver's Pix key.
 - Sender and receiver receipt uploads were both required before admin contribution confirmation.
-- `pixCopyCode` is generated from the requester's registered Pix key so bank apps can pay the correct receiver.
+- `pixCopyCode` is generated from `NEXORA_SUPPORT_PIX_KEY`, a platform Pix key, so the app does not embed the requester's Pix key or name in support payment payloads.
 - `receiverPixKey` remains empty in the JSON response, so the UI does not display the receiver's Pix key as a separate visible field.
-- `NEXORA_ADMIN_PIX_KEY` is reserved for administrative/platform fees and is not used for normal support transfers between users.
+- `NEXORA_ADMIN_PIX_KEY` is reserved for administrative/platform fees. `NEXORA_SUPPORT_PIX_KEY` is required for normal support transfers and can be an EVP/random Pix key or a PJ CNPJ Pix key.
 
 ## Test Data
 

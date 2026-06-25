@@ -56,7 +56,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
-const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-docker-xpfix.apk?v=20260625-2049";
+const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-privacy-esfix.apk?v=20260625-privacy-esfix";
 const MIN_CONTRIBUTION_CENTS = 500;
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
@@ -884,7 +884,7 @@ function DashboardView({
         </button>
       )}
       <div className="metric-grid">
-        <Metric label="Solicitacoes ativas" value={dashboard?.activeRequests ?? 0} />
+        <Metric label="Solicitações ativas" value={dashboard?.activeRequests ?? 0} />
         <Metric label="Operações concluídas" value={dashboard?.completedOperations ?? completed} />
         <Metric label="Usuários ativos" value={dashboard?.activeUsers ?? 0} />
         <Metric label="Em circulação" value={money(dashboard?.inCirculationCents ?? 0)} />
@@ -937,7 +937,7 @@ function CommunityView({
   const autoSplit = async () => {
     const amountCents = moneyInputToCents(splitAmount);
     if (amountCents < MIN_CONTRIBUTION_CENTS) {
-      showNotice("Doacao minima de R$ 5,00.", "error");
+      showNotice("Doação mínima de R$ 5,00.", "error");
       return;
     }
     setBusyAction("auto-split");
@@ -1015,7 +1015,7 @@ function RequestView({
       showNotice("Solicitação enviada para validação.");
       await reload();
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Solicitacao falhou.", "error");
+      showNotice(error instanceof Error ? error.message : "Solicitação falhou.", "error");
     } finally {
       setBusy(false);
     }
@@ -2138,10 +2138,35 @@ function PixModal({
           </button>
         </div>
         <Metric label="Valor" value={money(instruction.amountCents)} />
-        <CopyField label="Código Pix" value={instruction.pixCopyCode} showNotice={showNotice} multiline />
+        <ProtectedPixCopyField value={instruction.pixCopyCode} showNotice={showNotice} />
         <p className="muted">{instruction.message}</p>
-        <p className="secure-note">A chave Pix da pessoa que recebe não é exibida como campo separado. Use o código copia-e-cola.</p>
+        <p className="secure-note">A Nexora gera este código com a chave Pix da plataforma para não expor os dados da pessoa solicitante dentro do app.</p>
       </div>
+    </div>
+  );
+}
+
+function ProtectedPixCopyField({
+  value,
+  showNotice,
+}: {
+  value: string;
+  showNotice: (text: string, kind?: "ok" | "error") => void;
+}) {
+  const copy = async () => {
+    await copyText(value);
+    showNotice("Código Pix copiado.");
+  };
+
+  return (
+    <div className="protected-copy-field">
+      <div>
+        <span>Código Pix protegido</span>
+        <p>Por privacidade, o código completo não aparece na tela. Use o botão para copiar e pagar no banco.</p>
+      </div>
+      <button type="button" onClick={copy} disabled={!value} aria-label="Copiar código Pix protegido">
+        <Copy size={16} /> Copiar código
+      </button>
     </div>
   );
 }
