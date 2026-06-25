@@ -56,7 +56,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
-const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-docker-xpfix.apk";
+const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-docker-xpfix.apk?v=20260625-2049";
 const MIN_CONTRIBUTION_CENTS = 500;
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
