@@ -30,7 +30,7 @@ final class ReceiptSubmissionFallbackTest extends TestCase
             ->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/support-requests/contributions/contribution-fallback/receipt', [
                 'side' => 'SENDER',
-                'amountCents' => 100,
+                'amountCents' => 500,
                 'receiptHash' => $hash,
                 'receiptImageBase64' => base64_encode($image),
                 'receiptMimeType' => 'image/jpeg',
@@ -52,7 +52,7 @@ final class ReceiptSubmissionFallbackTest extends TestCase
 
     public function test_admin_can_confirm_a_pending_contribution_without_receipt_photos(): void
     {
-        [, , $adminToken] = $this->seedPendingContribution(withAdmin: true);
+        [$donorId, , $adminToken] = $this->seedPendingContribution(withAdmin: true);
 
         $response = $this
             ->withHeader('Authorization', "Bearer {$adminToken}")
@@ -65,9 +65,10 @@ final class ReceiptSubmissionFallbackTest extends TestCase
         ]);
         $this->assertDatabaseHas('support_requests', [
             'id' => 'support-fallback',
-            'funded_cents' => 100,
+            'funded_cents' => 500,
             'status' => 'FUNDED',
         ]);
+        $this->assertSame(5, (int) DB::table('users')->where('id', $donorId)->value('xp'));
     }
 
     /**
@@ -97,7 +98,7 @@ final class ReceiptSubmissionFallbackTest extends TestCase
             'id' => 'support-fallback',
             'requester_id' => $requesterId,
             'public_code' => 'AP-FALLBACK',
-            'amount_cents' => 100,
+            'amount_cents' => 500,
             'funded_cents' => 0,
             'due_days' => 7,
             'status' => 'OPEN',
@@ -109,7 +110,7 @@ final class ReceiptSubmissionFallbackTest extends TestCase
             'id' => 'contribution-fallback',
             'request_id' => 'support-fallback',
             'donor_id' => $donorId,
-            'amount_cents' => 100,
+            'amount_cents' => 500,
             'status' => 'PENDING_ADMIN',
             'created_at_ms' => $now,
             'verification_status' => 'pending_verification',

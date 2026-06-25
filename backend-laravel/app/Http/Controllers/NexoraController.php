@@ -354,11 +354,131 @@ class NexoraController extends Controller
         return response()->json($contributions);
     }
 
+    public function myRepayments(Request $request): JsonResponse
+    {
+        $user = $this->requireUser($request);
+        $rows = $this->repaymentQuery()
+            ->whereIn('support_requests.status', ['FUNDED', 'RETURNED'])
+            ->where('contributions.status', 'CONFIRMED')
+            ->where(function ($query) use ($user) {
+                $query->where('support_requests.requester_id', $user->id)
+                    ->orWhere('contributions.donor_id', $user->id);
+            })
+            ->orderByRaw('support_requests.due_at IS NULL')
+            ->orderBy('support_requests.due_at')
+            ->orderBy('contributions.created_at_ms')
+            ->get();
+
+        $items = $rows->map(fn ($row) => $this->repaymentResponse($row, $user->id));
+        $owed = $items->where('direction', 'OWED')->values();
+        $receivable = $items->where('direction', 'RECEIVABLE')->values();
+
+        return response()->json([
+            'owed' => $owed,
+            'receivable' => $receivable,
+            'summary' => [
+                'pendingCount' => $owed->whereNotIn('status', ['CONFIRMED'])->count(),
+                'overdueCount' => $owed->where('overdue', true)->count(),
+                'pendingAmountCents' => $owed->whereNotIn('status', ['CONFIRMED'])->sum('amountCents'),
+                'nextDueAt' => $owed->whereNotIn('status', ['CONFIRMED'])->pluck('dueAt')->filter()->min(),
+            ],
+        ]);
+    }
+
+    public function submitRepaymentProof(Request $request, string $id): JsonResponse
+    {
+        $user = $this->requireUser($request);
+        $row = $this->repaymentById($id);
+        if ($row === null) {
+            throw new ApiException(404, 'Devolução não encontrada.');
+        }
+        if ($row->requester_id !== $user->id) {
+            throw new ApiException(403, 'Apenas quem recebeu o apoio pode registrar esta devolução.');
+        }
+        if ($row->request_status !== 'FUNDED' || $row->contribution_status !== 'CONFIRMED') {
+            throw new ApiException(409, 'Esta devolução ainda não está disponível.');
+        }
+        if (($row->return_status ?? null) === 'CONFIRMED') {
+            throw new ApiException(409, 'Esta devolução já foi confirmada.');
+        }
+
+        $transactionId = $this->normalizeTransactionId((string) $request->input('transactionId', ''));
+        if (strlen($transactionId) < 6 || strlen($transactionId) > 80) {
+            throw new ApiException(400, 'Informe o ID da transação Pix da devolução.');
+        }
+        $duplicated = DB::table('contributions')
+            ->where('return_transaction_id', $transactionId)
+            ->where('id', '<>', $id)
+            ->exists();
+        if ($duplicated || DB::table('contributions')->where('transaction_id', $transactionId)->exists()) {
+            throw new ApiException(409, 'Este ID de transação já foi utilizado.');
+        }
+
+        $hash = strtolower(trim((string) $request->input('receiptHash', '')));
+        if (! $this->security->isValidSha256($hash)) {
+            throw new ApiException(400, 'Hash do comprovante inválido.');
+        }
+        $mime = strtolower(trim((string) $request->input('receiptMimeType', 'image/jpeg')));
+        $image = $this->validateReceiptImage((string) $request->input('receiptImageBase64', ''), $mime, $hash);
+        $submittedAt = $this->nowMs();
+
+        DB::table('contributions')->where('id', $id)->update([
+            'return_status' => 'PROOF_SUBMITTED',
+            'return_transaction_id' => $transactionId,
+            'return_receipt_hash' => $hash,
+            'return_receipt_image_base64' => $image,
+            'return_receipt_mime_type' => $mime,
+            'return_receipt_date' => now('America/Sao_Paulo')->format('Y-m-d'),
+            'return_submitted_at' => $submittedAt,
+        ]);
+        $this->audit($user->id, 'REPAYMENT_PROOF_SUBMITTED', $id);
+
+        return response()->json($this->repaymentResponse($this->repaymentById($id), $user->id), 201);
+    }
+
+    public function confirmRepayment(Request $request, string $id): JsonResponse
+    {
+        $user = $this->requireUser($request);
+        $supportId = DB::transaction(function () use ($id, $user) {
+            $contribution = DB::table('contributions')->where('id', $id)->lockForUpdate()->first();
+            if ($contribution === null) {
+                throw new ApiException(404, 'Devolução não encontrada.');
+            }
+            if ($contribution->donor_id !== $user->id) {
+                throw new ApiException(403, 'Apenas quem enviou o apoio pode confirmar o recebimento.');
+            }
+            if (($contribution->return_status ?? null) !== 'PROOF_SUBMITTED') {
+                throw new ApiException(409, 'A devolução precisa ter um comprovante enviado.');
+            }
+
+            DB::table('contributions')->where('id', $id)->update([
+                'return_status' => 'CONFIRMED',
+                'return_confirmed_at' => $this->nowMs(),
+            ]);
+            $this->audit($user->id, 'REPAYMENT_CONFIRMED', $id);
+
+            return (string) $contribution->request_id;
+        });
+
+        $completed = $this->finalizeSupportReturn($supportId, $user->id);
+
+        return response()->json([
+            'ok' => true,
+            'message' => $completed
+                ? 'Recebimento confirmado. A solicitação foi concluída e o buff foi atualizado.'
+                : 'Recebimento confirmado.',
+            'supportCompleted' => $completed,
+        ]);
+    }
+
     public function createSupportRequest(Request $request): JsonResponse
     {
         $user = $this->requireUser($request);
         if ($user->status !== 'APPROVED') {
             throw new ApiException(403, 'Conta aguardando validação manual.');
+        }
+        if ($this->hasOverdueRepayments($user->id)) {
+            throw new ApiException(409, 'Você possui devoluções em atraso. Regularize-as antes de criar uma nova solicitação.');
         }
         if (! ReputationRules::canRequestHelp($user)) {
             throw new ApiException(403, 'Para solicitar ajuda, e necessario estar no Nivel 2, com pelo menos 100 XP.');
@@ -423,7 +543,10 @@ class NexoraController extends Controller
         }
         $amountCents = (int) $request->input('amountCents', 0);
         $available = $this->availableContributionCents($support);
-        if ($amountCents <= 0 || $amountCents > $available) {
+        if ($amountCents < ReputationRules::MIN_CONTRIBUTION_CENTS) {
+            throw new ApiException(400, 'Doacao minima de R$ 5,00.');
+        }
+        if ($amountCents > $available) {
             if ($available <= 0) {
                 throw new ApiException(400, 'Esta solicitação já está totalmente reservada ou concluída por outros usuários.');
             }
@@ -443,8 +566,8 @@ class NexoraController extends Controller
             throw new ApiException(403, 'Conta aguardando validação manual.');
         }
         $total = (int) $request->input('amountCents', 0);
-        if ($total <= 0) {
-            throw new ApiException(400, 'Informe um valor valido.');
+        if ($total < ReputationRules::MIN_CONTRIBUTION_CENTS) {
+            throw new ApiException(400, 'Doacao minima de R$ 5,00.');
         }
 
         $created = DB::transaction(function () use ($donor, $total) {
@@ -465,7 +588,16 @@ class NexoraController extends Controller
                 if ($available <= 0) {
                     continue;
                 }
+                if ($available < ReputationRules::MIN_CONTRIBUTION_CENTS) {
+                    continue;
+                }
+                if ($remaining < ReputationRules::MIN_CONTRIBUTION_CENTS) {
+                    break;
+                }
                 $amount = min($remaining, $available);
+                if ($amount < ReputationRules::MIN_CONTRIBUTION_CENTS) {
+                    continue;
+                }
                 $contribution = $this->insertContribution($support->id, $donor->id, $amount);
                 $this->audit($donor->id, 'CONTRIBUTION_CREATED', $contribution->id);
                 $created[] = [$contribution, $support];
@@ -1012,7 +1144,8 @@ class NexoraController extends Controller
             DB::table('support_requests')->where('id', $id)->update([
                 'status' => 'OPEN',
                 'approved_at' => $approvalTime,
-                'due_at' => $approvalTime + (int) $support->due_days * 24 * 60 * 60 * 1000,
+                // The return clock starts only after the full amount is funded.
+                'due_at' => null,
             ]);
             DB::table('users')->where('id', $requester->id)->update([
                 'admin_fee_due_cents' => $nextFeeDue,
@@ -1066,36 +1199,40 @@ class NexoraController extends Controller
     {
         $actor = $this->requireAdmin($request);
         DB::transaction(function () use ($id, $actor) {
-            $support = $this->supportById($id);
+            $support = DB::table('support_requests')->where('id', $id)->lockForUpdate()->first();
             if ($support === null || $support->status !== 'FUNDED') {
                 throw new ApiException(409, 'Solicitacao precisa estar completa antes do retorno.');
             }
-            $requester = $this->userById($support->requester_id);
-            $returnedAt = $this->nowMs();
-            $timingColumn = $support->due_at !== null && $returnedAt < (int) $support->due_at ? 'early_returned_cents' : 'on_time_returned_cents';
-            $gainedXp = ReputationRules::xpForCompletedReturn((int) $support->amount_cents, (int) $requester->buff_bps);
-            $newXp = (int) $requester->xp + $gainedXp;
-            DB::table('support_requests')->where('id', $id)->update(['status' => 'RETURNED', 'returned_at' => $returnedAt]);
-            DB::table('users')->where('id', $requester->id)->update([
-                'xp' => $newXp,
-                'level' => ReputationRules::levelForXp($newXp),
-                $timingColumn => (int) $requester->{$timingColumn} + (int) $support->amount_cents,
-            ]);
-            $this->recalculateBuff($requester->id);
-            if ($requester->invited_by !== null) {
-                $this->recalculateBuff($requester->invited_by);
+            $pendingWithoutProof = DB::table('contributions')
+                ->where('request_id', $id)
+                ->where('status', 'CONFIRMED')
+                ->where(function ($query) {
+                    $query->whereNull('return_status')->orWhere('return_status', 'PENDING');
+                })
+                ->count();
+            if ($pendingWithoutProof > 0) {
+                throw new ApiException(409, 'Todas as devoluções precisam ter comprovante antes da validação administrativa.');
             }
-            $this->audit($actor?->id, 'SUPPORT_RETURN_CONFIRMED', $id);
+
+            DB::table('contributions')
+                ->where('request_id', $id)
+                ->where('status', 'CONFIRMED')
+                ->where('return_status', 'PROOF_SUBMITTED')
+                ->update(['return_status' => 'CONFIRMED', 'return_confirmed_at' => $this->nowMs()]);
         });
+        $completed = $this->finalizeSupportReturn($id, $actor?->id);
+        if (! $completed) {
+            throw new ApiException(409, 'Ainda existem devoluções pendentes.');
+        }
         $returned = $this->supportById($id);
         if ($returned !== null) {
             $requester = $this->userById($returned->requester_id);
             if ($requester !== null) {
-                $this->sendSupportRequestFeedbackEmail($requester, $returned, 'Retorno validado - Nexora', "O retorno da solicitacao {$returned->public_code} foi validado pela administracao. Seu XP e reputacao foram atualizados.");
+                $this->sendSupportRequestFeedbackEmail($requester, $returned, 'Retorno validado - Nexora', "O retorno da solicitacao {$returned->public_code} foi validado pela administracao. Seu buff acumulativo foi atualizado.");
             }
         }
 
-        return $this->ok('Retorno validado e XP atualizado.');
+        return $this->ok('Todas as devoluções foram validadas e o buff foi atualizado.');
     }
 
     public function adminContributions(Request $request): JsonResponse
@@ -1162,30 +1299,55 @@ class NexoraController extends Controller
     {
         $actor = $this->requireAdmin($request);
         DB::transaction(function () use ($id, $actor) {
-            $contribution = $this->contributionById($id);
+            $contribution = DB::table('contributions')->where('id', $id)->lockForUpdate()->first();
             if ($contribution === null || $contribution->status !== 'PENDING_ADMIN') {
                 throw new ApiException(409, 'Apoio não está aguardando validação.');
             }
-            $support = $this->supportById($contribution->request_id);
+            $support = DB::table('support_requests')->where('id', $contribution->request_id)->lockForUpdate()->first();
             if (! in_array($support->status, ['OPEN', 'FUNDED'], true)) {
                 throw new ApiException(409, 'Solicitação não está ativa.');
             }
             $remaining = max((int) $support->amount_cents - (int) $support->funded_cents, 0);
+            if ((int) $contribution->amount_cents < ReputationRules::MIN_CONTRIBUTION_CENTS) {
+                throw new ApiException(409, 'Apoio abaixo da doacao minima de R$ 5,00.');
+            }
             if ((int) $contribution->amount_cents > $remaining) {
                 throw new ApiException(409, 'Valor excede o saldo restante da solicitacao.');
             }
             $confirmedAt = $this->nowMs();
             $newFunded = (int) $support->funded_cents + (int) $contribution->amount_cents;
+            $donor = DB::table('users')->where('id', $contribution->donor_id)->lockForUpdate()->first();
             DB::table('contributions')->where('id', $id)->update([
                 'status' => 'CONFIRMED',
                 'confirmed_at' => $confirmedAt,
                 'verification_status' => 'match',
                 'admin_review_required' => false,
+                'return_status' => 'PENDING',
             ]);
+            $isFunded = $newFunded >= (int) $support->amount_cents;
             DB::table('support_requests')->where('id', $support->id)->update([
                 'funded_cents' => $newFunded,
-                'status' => $newFunded >= (int) $support->amount_cents ? 'FUNDED' : 'OPEN',
+                'status' => $isFunded ? 'FUNDED' : 'OPEN',
+                'due_at' => $isFunded ? $confirmedAt + (int) $support->due_days * 24 * 60 * 60 * 1000 : null,
             ]);
+            if ($isFunded) {
+                DB::table('contributions')
+                    ->where('request_id', $support->id)
+                    ->where('status', 'CONFIRMED')
+                    ->whereNull('return_status')
+                    ->update(['return_status' => 'PENDING']);
+            }
+            if ($donor !== null) {
+                $gainedXp = ReputationRules::xpForConfirmedContribution((int) $contribution->amount_cents, (int) $donor->buff_bps);
+                $newXp = (int) $donor->xp + $gainedXp;
+                DB::table('users')->where('id', $donor->id)->update([
+                    'xp' => $newXp,
+                    'level' => ReputationRules::levelForXp($newXp),
+                ]);
+                if ($donor->invited_by !== null) {
+                    $this->recalculateBuff($donor->invited_by);
+                }
+            }
             $this->audit($actor?->id, 'CONTRIBUTION_CONFIRMED', $id);
         });
 
@@ -1256,6 +1418,8 @@ class NexoraController extends Controller
                 'contributions.verification_status' => Schema::hasColumn('contributions', 'verification_status'),
                 'contributions.admin_review_required' => Schema::hasColumn('contributions', 'admin_review_required'),
                 'contributions.rejected_reason' => Schema::hasColumn('contributions', 'rejected_reason'),
+                'contributions.return_status' => Schema::hasColumn('contributions', 'return_status'),
+                'contributions.return_transaction_id' => Schema::hasColumn('contributions', 'return_transaction_id'),
             ],
         ]);
     }
@@ -1668,6 +1832,8 @@ class NexoraController extends Controller
             'invitedCount' => DB::table('users')->where('invited_by', $user->id)->count(),
             'adminFeeDueCents' => (int) $user->admin_fee_due_cents,
             'adminFeeLimitCents' => ReputationRules::adminFeeLimitCents((int) $user->level),
+            'pendingRepaymentCount' => $this->pendingRepaymentCount($user->id),
+            'overdueRepaymentCount' => $this->overdueRepaymentCount($user->id),
             'pixKeyMasked' => $this->maskPix($this->security->decrypt($user->pix_cipher)),
             'adminPixKey' => (int) $user->admin_fee_due_cents > 0 ? $this->adminPixKey() : null,
         ];
@@ -1683,9 +1849,12 @@ class NexoraController extends Controller
             'amountCents' => (int) $support->amount_cents,
             'fundedCents' => (int) $support->funded_cents,
             'dueDays' => (int) $support->due_days,
+            'dueAt' => $support->due_at === null ? null : (int) $support->due_at,
             'status' => $support->status,
             'description' => $includeDescription ? $support->description : null,
             'createdAt' => (int) $support->created_at_ms,
+            'returnedAt' => $support->returned_at === null ? null : (int) $support->returned_at,
+            'overdue' => $support->status === 'FUNDED' && $support->due_at !== null && (int) $support->due_at < $this->nowMs(),
         ];
     }
 
@@ -1754,10 +1923,13 @@ class NexoraController extends Controller
             'amountCents' => (int) $support->amount_cents,
             'fundedCents' => (int) $support->funded_cents,
             'dueDays' => (int) $support->due_days,
+            'dueAt' => $support->due_at === null ? null : (int) $support->due_at,
             'status' => $support->status,
             'adminFeeCents' => ReputationRules::adminFeeFor((int) $support->amount_cents),
             'description' => $support->description,
             'createdAt' => (int) $support->created_at_ms,
+            'returnedAt' => $support->returned_at === null ? null : (int) $support->returned_at,
+            'overdue' => $support->status === 'FUNDED' && $support->due_at !== null && (int) $support->due_at < $this->nowMs(),
         ];
     }
 
@@ -1893,6 +2065,12 @@ class NexoraController extends Controller
             'receiverOcrRawText' => $row->receiver_ocr_raw_text ?? null,
             'ocrComparisonResult' => $row->ocr_comparison_result ?? null,
             'ocrComparisonNotes' => $row->ocr_comparison_notes ?? null,
+            'returnStatus' => $row->return_status ?? null,
+            'returnTransactionId' => $row->return_transaction_id ?? null,
+            'returnReceiptHash' => $row->return_receipt_hash ?? null,
+            'returnReceiptDate' => $row->return_receipt_date ?? null,
+            'returnSubmittedAt' => isset($row->return_submitted_at) ? (int) $row->return_submitted_at : null,
+            'returnConfirmedAt' => isset($row->return_confirmed_at) ? (int) $row->return_confirmed_at : null,
         ];
     }
 
@@ -1967,6 +2145,10 @@ class NexoraController extends Controller
 
     private function insertContribution(string $requestId, string $donorId, int $amountCents): object
     {
+        if ($amountCents < ReputationRules::MIN_CONTRIBUTION_CENTS) {
+            throw new ApiException(400, 'Doacao minima de R$ 5,00.');
+        }
+
         $row = [
             'id' => (string) Str::uuid(),
             'request_id' => $requestId,
@@ -1997,6 +2179,182 @@ class NexoraController extends Controller
             'verification_status' => null,
             'admin_review_required' => false,
         ]);
+    }
+
+    private function repaymentQuery()
+    {
+        return DB::table('contributions')
+            ->join('support_requests', 'support_requests.id', '=', 'contributions.request_id')
+            ->join('users as donor', 'donor.id', '=', 'contributions.donor_id')
+            ->join('users as requester', 'requester.id', '=', 'support_requests.requester_id')
+            ->select(
+                'contributions.id',
+                'contributions.request_id',
+                'contributions.donor_id',
+                'contributions.amount_cents',
+                'contributions.status as contribution_status',
+                'contributions.return_status',
+                'contributions.return_transaction_id',
+                'contributions.return_receipt_hash',
+                'contributions.return_receipt_date',
+                'contributions.return_submitted_at',
+                'contributions.return_confirmed_at',
+                'contributions.created_at_ms',
+                'support_requests.requester_id',
+                'support_requests.public_code as request_public_code',
+                'support_requests.status as request_status',
+                'support_requests.due_at',
+                'support_requests.returned_at',
+                'donor.public_id as donor_public_id',
+                'donor.name as donor_name',
+                'donor.pix_cipher as donor_pix_cipher',
+                'requester.public_id as requester_public_id',
+                'requester.name as requester_name',
+            );
+    }
+
+    private function repaymentById(string $id): ?object
+    {
+        return $this->repaymentQuery()->where('contributions.id', $id)->first();
+    }
+
+    private function repaymentResponse(object $row, string $currentUserId): array
+    {
+        $direction = $row->requester_id === $currentUserId ? 'OWED' : 'RECEIVABLE';
+        $status = $row->request_status === 'RETURNED'
+            ? 'CONFIRMED'
+            : (string) ($row->return_status ?: 'PENDING');
+        $dueAt = $row->due_at === null ? null : (int) $row->due_at;
+        $overdue = $status !== 'CONFIRMED' && $dueAt !== null && $dueAt < $this->nowMs();
+        $pixCode = null;
+        $pixKeyMasked = null;
+
+        if ($direction === 'OWED' && $status !== 'CONFIRMED') {
+            $pixKey = trim($this->security->decrypt($row->donor_pix_cipher));
+            $pixKeyMasked = $this->maskPix($pixKey);
+            try {
+                $pixCode = PixCopyCode::build(
+                    $pixKey,
+                    (int) $row->amount_cents,
+                    $this->security->paymentReference('RET-'.$row->id),
+                    (string) $row->donor_name,
+                    (string) config('nexora.pix_merchant_city'),
+                );
+            } catch (\InvalidArgumentException) {
+                $pixCode = null;
+            }
+        }
+
+        return [
+            'id' => $row->id,
+            'requestId' => $row->request_id,
+            'requestPublicCode' => $row->request_public_code,
+            'direction' => $direction,
+            'counterpartyPublicId' => $direction === 'OWED' ? $row->donor_public_id : $row->requester_public_id,
+            'counterpartyName' => $direction === 'OWED' ? $row->donor_name : $row->requester_name,
+            'amountCents' => (int) $row->amount_cents,
+            'dueAt' => $dueAt,
+            'returnedAt' => $row->returned_at === null ? null : (int) $row->returned_at,
+            'status' => $status,
+            'overdue' => $overdue,
+            'daysRemaining' => $dueAt === null ? null : (int) ceil(($dueAt - $this->nowMs()) / (24 * 60 * 60 * 1000)),
+            'penaltyMessage' => $overdue ? 'Novas solicitações ficam bloqueadas até a regularização.' : null,
+            'pixKeyMasked' => $pixKeyMasked,
+            'pixCopyCode' => $pixCode,
+            'transactionId' => $row->return_transaction_id,
+            'hasReceipt' => ! empty($row->return_receipt_hash),
+            'receiptDate' => $row->return_receipt_date,
+            'submittedAt' => $row->return_submitted_at === null ? null : (int) $row->return_submitted_at,
+            'confirmedAt' => $row->return_confirmed_at === null ? null : (int) $row->return_confirmed_at,
+        ];
+    }
+
+    private function pendingRepaymentCount(string $userId): int
+    {
+        return DB::table('contributions')
+            ->join('support_requests', 'support_requests.id', '=', 'contributions.request_id')
+            ->where('support_requests.requester_id', $userId)
+            ->where('support_requests.status', 'FUNDED')
+            ->where('contributions.status', 'CONFIRMED')
+            ->where(function ($query) {
+                $query->whereNull('contributions.return_status')
+                    ->orWhere('contributions.return_status', '<>', 'CONFIRMED');
+            })
+            ->count();
+    }
+
+    private function overdueRepaymentCount(string $userId): int
+    {
+        return DB::table('contributions')
+            ->join('support_requests', 'support_requests.id', '=', 'contributions.request_id')
+            ->where('support_requests.requester_id', $userId)
+            ->where('support_requests.status', 'FUNDED')
+            ->whereNotNull('support_requests.due_at')
+            ->where('support_requests.due_at', '<', $this->nowMs())
+            ->where('contributions.status', 'CONFIRMED')
+            ->where(function ($query) {
+                $query->whereNull('contributions.return_status')
+                    ->orWhere('contributions.return_status', '<>', 'CONFIRMED');
+            })
+            ->count();
+    }
+
+    private function hasOverdueRepayments(string $userId): bool
+    {
+        return $this->overdueRepaymentCount($userId) > 0;
+    }
+
+    private function finalizeSupportReturn(string $supportId, ?string $actorId): bool
+    {
+        return DB::transaction(function () use ($supportId, $actorId) {
+            $support = DB::table('support_requests')->where('id', $supportId)->lockForUpdate()->first();
+            if ($support === null || $support->status === 'RETURNED') {
+                return $support?->status === 'RETURNED';
+            }
+            if ($support->status !== 'FUNDED') {
+                return false;
+            }
+
+            $confirmedContributions = DB::table('contributions')
+                ->where('request_id', $supportId)
+                ->where('status', 'CONFIRMED');
+            if ((clone $confirmedContributions)->count() === 0) {
+                return false;
+            }
+            if ((clone $confirmedContributions)->where(function ($query) {
+                $query->whereNull('return_status')->orWhere('return_status', '<>', 'CONFIRMED');
+            })->exists()) {
+                return false;
+            }
+
+            $requester = DB::table('users')->where('id', $support->requester_id)->lockForUpdate()->first();
+            if ($requester === null) {
+                return false;
+            }
+            $returnedAt = $this->nowMs();
+            if ($support->due_at !== null && $returnedAt <= (int) $support->due_at) {
+                $userUpdate = [
+                    'early_returned_cents' => (int) $requester->early_returned_cents + (int) $support->amount_cents,
+                ];
+            } else {
+                $userUpdate = [
+                    'on_time_returned_cents' => (int) $requester->on_time_returned_cents + (int) $support->amount_cents,
+                ];
+            }
+
+            DB::table('support_requests')->where('id', $supportId)->update([
+                'status' => 'RETURNED',
+                'returned_at' => $returnedAt,
+            ]);
+            DB::table('users')->where('id', $requester->id)->update($userUpdate);
+            $this->recalculateBuff($requester->id);
+            if ($requester->invited_by !== null) {
+                $this->recalculateBuff($requester->invited_by);
+            }
+            $this->audit($actorId, 'SUPPORT_RETURN_CONFIRMED', $supportId);
+
+            return true;
+        });
     }
 
     private function recalculateBuff(string $userId): void

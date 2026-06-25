@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
@@ -146,6 +147,7 @@ private val NexoraRed = Color(0xFFFF4D4D)
 private const val NexoraDownloadUrl = "https://nexora-web-mauve.vercel.app"
 private const val NexoraContactEmail = "nexora@nexoraappbr.com"
 private const val NexoraContactPhone = "+5511913463247"
+private const val MinContributionCents = 500L
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -836,6 +838,7 @@ private fun MainTabContent(state: NexoraUiState, viewModel: NexoraViewModel) {
         MainTab.PAINEL -> DashboardScreen(state, viewModel)
         MainTab.COMUNIDADE -> CommunityScreen(state, viewModel)
         MainTab.SOLICITAR -> RequestScreen(state, viewModel)
+        MainTab.RETORNOS -> RepaymentScreen(state, viewModel)
         MainTab.PERFIL -> ProfileScreen(state, viewModel)
         MainTab.ADMIN -> AdminScreen(state, viewModel)
     }
@@ -848,6 +851,7 @@ private fun NexoraBottomBar(state: NexoraUiState, viewModel: NexoraViewModel) {
         add(Triple(MainTab.PAINEL, uiText("tabPanel", state.language), Icons.Filled.Dashboard))
         add(Triple(MainTab.COMUNIDADE, uiText("tabCommunity", state.language), Icons.Filled.Groups))
         add(Triple(MainTab.SOLICITAR, uiText("tabRequest", state.language), Icons.Filled.Add))
+        add(Triple(MainTab.RETORNOS, uiText("tabReturns", state.language), Icons.Filled.Replay))
         add(Triple(MainTab.PERFIL, uiText("tabProfile", state.language), Icons.Filled.Person))
         if (profile?.role in setOf("ADMIN", "SUPER_ADMIN")) add(Triple(MainTab.ADMIN, uiText("tabAdmin", state.language), Icons.Filled.AdminPanelSettings))
     }
@@ -941,6 +945,28 @@ private fun DashboardScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                     onLanguageSelect = viewModel::setLanguage,
                 )
             }
+            if (state.repayments.summary.pendingCount > 0) {
+                item {
+                    NexoraPanel(
+                        modifier = Modifier.clickable { viewModel.setTab(MainTab.RETORNOS) },
+                        border = state.repayments.summary.overdueCount > 0,
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (state.repayments.summary.overdueCount > 0) uiText("overdueReturnsTitle", state.language) else uiText("pendingReturnsTitle", state.language),
+                                    color = if (state.repayments.summary.overdueCount > 0) NexoraRed else NexoraGreen,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 18.sp,
+                                )
+                                Text(formatMoney(state.repayments.summary.pendingAmountCents), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                state.repayments.summary.nextDueAt?.let { Text("${uiText("nextDue", state.language)}: ${formatTimestamp(it)}", color = NexoraMuted) }
+                            }
+                            Icon(Icons.Filled.Replay, contentDescription = null, tint = NexoraGreen)
+                        }
+                    }
+                }
+            }
             item {
                 NexoraPanel(border = true) {
                     Text(uiText("communityLiquidity", state.language), color = NexoraMuted, fontSize = 14.sp, letterSpacing = 3.sp)
@@ -1023,6 +1049,7 @@ private fun CommunityScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
                                 val cents = parseMoneyToCents(batchAmount)
                                 when {
                                     cents == null || cents <= 0 -> viewModel.showValidationError(uiText("enterDistributionValue", state.language))
+                                    cents < MinContributionCents -> viewModel.showValidationError(uiText("minimumContribution", state.language))
                                     state.community.isEmpty() -> viewModel.showValidationError(uiText("noOpenRequests", state.language))
                                     else -> viewModel.createContributionBatch(cents)
                                 }
@@ -1192,6 +1219,166 @@ private fun AutoFitSingleLineText(
             textAlign = textAlign,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+@Composable
+private fun RepaymentScreen(state: NexoraUiState, viewModel: NexoraViewModel) {
+    val workspace = state.repayments
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            ScreenTitle(
+                uiText("returnsTitle", state.language),
+                uiText("returnsSubtitle", state.language),
+                onRefresh = viewModel::refreshRepayments,
+                refreshing = MainTab.RETORNOS in state.refreshingTabs,
+            )
+        }
+        item {
+            NexoraPanel(border = workspace.summary.overdueCount > 0) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    StatText(uiText("pendingReturns", state.language), "${workspace.summary.pendingCount}", if (workspace.summary.overdueCount > 0) NexoraRed else NexoraGreen)
+                    StatText(uiText("pendingValue", state.language), formatMoney(workspace.summary.pendingAmountCents), NexoraText)
+                }
+                workspace.summary.nextDueAt?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text("${uiText("nextDue", state.language)}: ${formatTimestamp(it)}", color = NexoraMuted)
+                }
+                if (workspace.summary.overdueCount > 0) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Warning, contentDescription = null, tint = NexoraRed)
+                        Text(uiText("overduePenalty", state.language), color = NexoraRed, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        item { Text(uiText("needToReturn", state.language), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+        if (workspace.owed.isEmpty()) {
+            item { EmptyState(uiText("noReturns", state.language), uiText("noReturnsHelp", state.language)) }
+        } else {
+            items(workspace.owed, key = { "owed-${it.id}" }) { repayment ->
+                RepaymentCard(repayment, state, viewModel)
+            }
+        }
+        item { Text(uiText("toReceive", state.language), color = NexoraText, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+        if (workspace.receivable.isEmpty()) {
+            item { Text(uiText("nothingToReceive", state.language), color = NexoraMuted) }
+        } else {
+            items(workspace.receivable, key = { "receive-${it.id}" }) { repayment ->
+                RepaymentCard(repayment, state, viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RepaymentCard(repayment: Repayment, state: NexoraUiState, viewModel: NexoraViewModel) {
+    val clipboard = LocalClipboardManager.current
+    val owed = repayment.direction == "OWED"
+    val statusText = when (repayment.status) {
+        "PROOF_SUBMITTED" -> uiText("returnProofSent", state.language)
+        "CONFIRMED" -> uiText("returnConfirmed", state.language)
+        else -> uiText("returnPending", state.language)
+    }
+    NexoraPanel(border = repayment.overdue) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(formatMoney(repayment.amountCents), color = if (repayment.overdue) NexoraRed else NexoraGreen, fontSize = 26.sp, fontWeight = FontWeight.Black)
+                Text(repayment.requestPublicCode, color = NexoraMuted)
+            }
+            StatusPill(if (repayment.overdue) "BLOCKED" else if (repayment.status == "CONFIRMED") "RETURNED" else "PENDING")
+        }
+        Spacer(Modifier.height(12.dp))
+        DetailLine(if (owed) uiText("returnTo", state.language) else uiText("receiveFrom", state.language), "${repayment.counterpartyName} · ${repayment.counterpartyPublicId}")
+        DetailLine(uiText("returnStatus", state.language), statusText)
+        DetailLine(uiText("returnDue", state.language), repayment.dueAt?.let(::formatTimestamp) ?: uiText("waitingFunding", state.language))
+        repayment.daysRemaining?.takeIf { repayment.status != "CONFIRMED" }?.let {
+            Text(
+                if (repayment.overdue) "${kotlin.math.abs(it)} ${uiText("daysLate", state.language)}" else "$it ${uiText("daysRemaining", state.language)}",
+                color = if (repayment.overdue) NexoraRed else NexoraMuted,
+                fontWeight = if (repayment.overdue) FontWeight.Bold else FontWeight.Normal,
+            )
+        }
+        repayment.pixKeyMasked?.let { DetailLine(uiText("destinationPix", state.language), it) }
+        repayment.transactionId?.let { DetailLine(uiText("transactionId", state.language), it) }
+
+        if (owed && repayment.status == "PENDING") {
+            Spacer(Modifier.height(14.dp))
+            OutlinedButton(
+                onClick = { repayment.pixCopyCode?.let { clipboard.setText(AnnotatedString(it)) } },
+                enabled = repayment.pixCopyCode != null,
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, NexoraGreen),
+            ) {
+                Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = NexoraGreen)
+                Spacer(Modifier.width(8.dp))
+                Text(uiText("copyReturnPix", state.language), color = NexoraGreen)
+            }
+            Spacer(Modifier.height(10.dp))
+            RepaymentProofControls(repayment.id, state.loading, viewModel::submitRepaymentProof)
+        }
+        if (owed && repayment.status == "PROOF_SUBMITTED") {
+            Spacer(Modifier.height(10.dp))
+            Text(uiText("waitingReturnConfirmation", state.language), color = NexoraMuted)
+        }
+        if (!owed && repayment.status == "PROOF_SUBMITTED") {
+            Spacer(Modifier.height(12.dp))
+            NexoraButton(uiText("confirmReturnReceipt", state.language).uppercase(), loading = state.loading) {
+                viewModel.confirmRepayment(repayment.id)
+            }
+        }
+        repayment.penaltyMessage?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(uiText("overduePenalty", state.language), color = NexoraRed, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun RepaymentProofControls(
+    repaymentId: String,
+    loading: Boolean,
+    onSubmit: (String, String, ReceiptUpload) -> Unit,
+) {
+    val context = LocalContext.current
+    var transactionId by rememberSaveable(repaymentId) { mutableStateOf("") }
+    var upload by remember(repaymentId) { mutableStateOf<ReceiptUpload?>(null) }
+    var error by remember(repaymentId) { mutableStateOf<String?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            runCatching { receiptUploadFromUri(context, uri) }
+                .onSuccess { upload = it; error = null }
+                .onFailure { error = it.message }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        NexoraInput(uiText("returnTransactionId"), transactionId, { transactionId = it })
+        OutlinedButton(
+            onClick = { launcher.launch("image/*") },
+            enabled = !loading,
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            border = BorderStroke(1.dp, NexoraGreen),
+        ) {
+            Icon(if (upload == null) Icons.Filled.AddAPhoto else Icons.Filled.Check, contentDescription = null, tint = NexoraGreen)
+            Spacer(Modifier.width(8.dp))
+            Text(if (upload == null) uiText("attachReturnProof") else uiText("photoReady"), color = NexoraGreen)
+        }
+        NexoraButton(uiText("sendReturnProof").uppercase(), loading = loading) {
+            val current = upload
+            if (transactionId.trim().length < 6 || current == null) {
+                error = uiText("returnProofRequired")
+            } else {
+                error = null
+                onSubmit(repaymentId, transactionId.trim(), current)
+            }
+        }
+        error?.let { Text(it, color = NexoraRed, fontSize = 13.sp) }
     }
 }
 
@@ -2787,7 +2974,39 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "tabPanel" to "Painel",
         "tabCommunity" to "Comunidade",
         "tabRequest" to "Solicitar",
+        "tabReturns" to "Devolver",
         "tabProfile" to "Perfil",
+        "returnsTitle" to "Devoluções",
+        "pendingReturnsTitle" to "Você tem devoluções pendentes",
+        "overdueReturnsTitle" to "Você tem devoluções em atraso",
+        "returnsSubtitle" to "Valores, destinatários, prazos e comprovantes em um só lugar",
+        "pendingReturns" to "PENDENTES",
+        "pendingValue" to "VALOR PENDENTE",
+        "nextDue" to "Próximo vencimento",
+        "overduePenalty" to "Novas solicitações ficam bloqueadas até regularizar as devoluções atrasadas.",
+        "needToReturn" to "Preciso devolver",
+        "toReceive" to "Tenho a receber",
+        "noReturns" to "Nenhuma devolução",
+        "noReturnsHelp" to "Quando uma solicitação for totalmente financiada, cada destinatário aparecerá aqui.",
+        "nothingToReceive" to "Nenhuma devolução para confirmar.",
+        "returnTo" to "Devolver para",
+        "receiveFrom" to "Receber de",
+        "returnStatus" to "Situação",
+        "returnDue" to "Prazo",
+        "returnPending" to "Pagamento pendente",
+        "returnProofSent" to "Comprovante enviado",
+        "returnConfirmed" to "Devolução confirmada",
+        "waitingFunding" to "Aguardando financiamento completo",
+        "daysLate" to "dia(s) em atraso",
+        "daysRemaining" to "dia(s) restantes",
+        "destinationPix" to "Pix do destinatário",
+        "copyReturnPix" to "Copiar Pix para devolver",
+        "waitingReturnConfirmation" to "Aguardando o destinatário confirmar o recebimento.",
+        "confirmReturnReceipt" to "Confirmar que recebi",
+        "returnTransactionId" to "ID da transação Pix",
+        "attachReturnProof" to "Anexar comprovante",
+        "sendReturnProof" to "Enviar comprovante",
+        "returnProofRequired" to "Informe o ID da transação e anexe o comprovante.",
         "tabAdmin" to "Admin",
         "tutorialFaq" to "Tutorial e FAQ",
         "tutorialTitle" to "Primeiros passos",
@@ -2875,7 +3094,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "yourLimit" to "Seu limite",
         "yourLimitUpper" to "SEU LIMITE",
         "howItWorks" to "Como funciona",
-        "howItWorksBody" to "A comunidade contribui com pequenos valores via Pix até completar sua solicitação. Você registra o retorno no prazo e ganha XP, buffs e maior limite.",
+        "howItWorksBody" to "A comunidade contribui via Pix até completar sua solicitação. Quem apoia recebe 1 XP por real; quem devolve acumula buff e mantém o limite saudável.",
         "requestLocked" to "Solicitação liberada a partir do Nível 2 com 100 XP e limite disponível.",
         "requestedValue" to "Valor solicitado",
         "returnDeadlineDays" to "Prazo para retorno (dias)",
@@ -2883,6 +3102,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "requestSupportButton" to "SOLICITAR APOIO",
         "requestLockedShort" to "Você ainda não pode solicitar: precisa estar no Nível 2 com 100 XP.",
         "enterValidValue" to "Informe um valor válido.",
+        "minimumContribution" to "Doacao minima de R$ 5,00.",
         "valueAboveLimit" to "Valor acima do seu limite atual.",
         "enterDeadlineDays" to "Informe o prazo em dias.",
         "deadlineRange" to "O prazo precisa ficar entre 1 e 30 dias.",
@@ -3086,7 +3306,39 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "tabPanel" to "Panel",
         "tabCommunity" to "Comunidad",
         "tabRequest" to "Solicitar",
+        "tabReturns" to "Devolver",
         "tabProfile" to "Perfil",
+        "returnsTitle" to "Devoluciones",
+        "pendingReturnsTitle" to "Tienes devoluciones pendientes",
+        "overdueReturnsTitle" to "Tienes devoluciones atrasadas",
+        "returnsSubtitle" to "Montos, destinatarios, fechas y comprobantes en un solo lugar",
+        "pendingReturns" to "PENDIENTES",
+        "pendingValue" to "VALOR PENDIENTE",
+        "nextDue" to "Próximo vencimiento",
+        "overduePenalty" to "Las nuevas solicitudes quedan bloqueadas hasta regularizar las devoluciones atrasadas.",
+        "needToReturn" to "Debo devolver",
+        "toReceive" to "Debo recibir",
+        "noReturns" to "Sin devoluciones",
+        "noReturnsHelp" to "Cuando una solicitud quede totalmente financiada, cada destinatario aparecerá aquí.",
+        "nothingToReceive" to "No hay devoluciones para confirmar.",
+        "returnTo" to "Devolver a",
+        "receiveFrom" to "Recibir de",
+        "returnStatus" to "Estado",
+        "returnDue" to "Fecha límite",
+        "returnPending" to "Pago pendiente",
+        "returnProofSent" to "Comprobante enviado",
+        "returnConfirmed" to "Devolución confirmada",
+        "waitingFunding" to "Esperando financiación completa",
+        "daysLate" to "día(s) de atraso",
+        "daysRemaining" to "día(s) restantes",
+        "destinationPix" to "Pix del destinatario",
+        "copyReturnPix" to "Copiar Pix para devolver",
+        "waitingReturnConfirmation" to "Esperando que el destinatario confirme la recepción.",
+        "confirmReturnReceipt" to "Confirmar que recibí",
+        "returnTransactionId" to "ID de la transacción Pix",
+        "attachReturnProof" to "Adjuntar comprobante",
+        "sendReturnProof" to "Enviar comprobante",
+        "returnProofRequired" to "Informa el ID de la transacción y adjunta el comprobante.",
         "tabAdmin" to "Admin",
         "tutorialFaq" to "Tutorial y FAQ",
         "tutorialTitle" to "Primeros pasos",
@@ -3174,7 +3426,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "yourLimit" to "Tu limite",
         "yourLimitUpper" to "TU LIMITE",
         "howItWorks" to "Como funciona",
-        "howItWorksBody" to "La comunidad contribuye con pequenos valores por Pix hasta completar tu solicitud. Registras el retorno a tiempo y ganas XP, buffs y mayor limite.",
+        "howItWorksBody" to "La comunidad contribuye por Pix hasta completar tu solicitud. Quien apoya recibe 1 XP por real; quien devuelve acumula buff y mantiene el limite saludable.",
         "requestLocked" to "Solicitud liberada desde el Nivel 2 con 100 XP y limite disponible.",
         "requestedValue" to "Valor solicitado",
         "returnDeadlineDays" to "Plazo de retorno (dias)",
@@ -3182,6 +3434,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "requestSupportButton" to "SOLICITAR APOYO",
         "requestLockedShort" to "Aun no puedes solicitar: necesitas estar en Nivel 2 con 100 XP.",
         "enterValidValue" to "Informa un valor valido.",
+        "minimumContribution" to "Donacion minima de R$ 5,00.",
         "valueAboveLimit" to "Valor por encima de tu limite actual.",
         "enterDeadlineDays" to "Informa el plazo en dias.",
         "deadlineRange" to "El plazo debe estar entre 1 y 30 dias.",
@@ -3385,7 +3638,39 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "tabPanel" to "Panel",
         "tabCommunity" to "Community",
         "tabRequest" to "Request",
+        "tabReturns" to "Return",
         "tabProfile" to "Profile",
+        "returnsTitle" to "Repayments",
+        "pendingReturnsTitle" to "You have pending repayments",
+        "overdueReturnsTitle" to "You have overdue repayments",
+        "returnsSubtitle" to "Amounts, recipients, deadlines, and receipts in one place",
+        "pendingReturns" to "PENDING",
+        "pendingValue" to "PENDING AMOUNT",
+        "nextDue" to "Next due date",
+        "overduePenalty" to "New requests are blocked until overdue repayments are settled.",
+        "needToReturn" to "I need to repay",
+        "toReceive" to "I am owed",
+        "noReturns" to "No repayments",
+        "noReturnsHelp" to "Once a request is fully funded, each recipient will appear here.",
+        "nothingToReceive" to "No repayments to confirm.",
+        "returnTo" to "Repay",
+        "receiveFrom" to "Receive from",
+        "returnStatus" to "Status",
+        "returnDue" to "Due date",
+        "returnPending" to "Payment pending",
+        "returnProofSent" to "Receipt submitted",
+        "returnConfirmed" to "Repayment confirmed",
+        "waitingFunding" to "Waiting for full funding",
+        "daysLate" to "day(s) overdue",
+        "daysRemaining" to "day(s) remaining",
+        "destinationPix" to "Recipient Pix",
+        "copyReturnPix" to "Copy Pix to repay",
+        "waitingReturnConfirmation" to "Waiting for the recipient to confirm receipt.",
+        "confirmReturnReceipt" to "Confirm receipt",
+        "returnTransactionId" to "Pix transaction ID",
+        "attachReturnProof" to "Attach receipt",
+        "sendReturnProof" to "Send receipt",
+        "returnProofRequired" to "Enter the transaction ID and attach the receipt.",
         "tabAdmin" to "Admin",
         "tutorialFaq" to "Tutorial and FAQ",
         "tutorialTitle" to "First steps",
@@ -3473,7 +3758,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "yourLimit" to "Your limit",
         "yourLimitUpper" to "YOUR LIMIT",
         "howItWorks" to "How it works",
-        "howItWorksBody" to "The community contributes small amounts through Pix until your request is complete. You register the return on time and earn XP, buffs, and a higher limit.",
+        "howItWorksBody" to "The community contributes through Pix until your request is complete. Supporters earn 1 XP per real; returning funds builds the cumulative buff and keeps limits healthy.",
         "requestLocked" to "Requests unlock at Level 2 with 100 XP and available limit.",
         "requestedValue" to "Requested amount",
         "returnDeadlineDays" to "Return deadline (days)",
@@ -3481,6 +3766,7 @@ private fun uiText(key: String, language: AppLanguage = NexoraLanguageStore.curr
         "requestSupportButton" to "REQUEST SUPPORT",
         "requestLockedShort" to "You cannot request yet: you need Level 2 with 100 XP.",
         "enterValidValue" to "Enter a valid amount.",
+        "minimumContribution" to "Minimum contribution is R$ 5.00.",
         "valueAboveLimit" to "Amount above your current limit.",
         "enterDeadlineDays" to "Enter the deadline in days.",
         "deadlineRange" to "The deadline must be between 1 and 30 days.",

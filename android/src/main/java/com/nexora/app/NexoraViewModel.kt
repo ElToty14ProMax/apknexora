@@ -11,7 +11,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class MainTab { PAINEL, COMUNIDADE, SOLICITAR, PERFIL, ADMIN }
+enum class MainTab { PAINEL, COMUNIDADE, SOLICITAR, RETORNOS, PERFIL, ADMIN }
 
 data class NexoraUiState(
     val baseUrl: String = NexoraDefaultBaseUrl,
@@ -20,6 +20,7 @@ data class NexoraUiState(
     val community: List<SupportRequest> = emptyList(),
     val myRequests: List<SupportRequest> = emptyList(),
     val contributionHistory: List<ContributionHistory> = emptyList(),
+    val repayments: RepaymentWorkspace = RepaymentWorkspace(),
     val adminUsers: List<AdminUser> = emptyList(),
     val adminRequests: List<AdminSupportRequest> = emptyList(),
     val adminContributions: List<AdminContribution> = emptyList(),
@@ -202,17 +203,20 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         val communityRequest = async { api.community() }
         val mineRequest = async { api.myRequests() }
         val historyRequest = async { api.contributionHistory() }
+        val repaymentsRequest = async { api.myRepayments() }
         val profile = profileRequest.await()
         val dashboard = dashboardRequest.await()
         val community = communityRequest.await()
         val mine = mineRequest.await()
         val history = historyRequest.await()
+        val repayments = repaymentsRequest.await()
         state = state.copy(
             profile = profile,
             dashboard = dashboard,
             community = community,
             myRequests = mine,
             contributionHistory = history,
+            repayments = repayments,
             message = null,
             messageIsError = false,
             hasSavedSession = !api.token.isNullOrBlank(),
@@ -232,11 +236,29 @@ class NexoraViewModel(application: Application) : AndroidViewModel(application) 
         val profileRequest = async { api.me() }
         val mineRequest = async { api.myRequests() }
         val historyRequest = async { api.contributionHistory() }
+        val repaymentsRequest = async { api.myRepayments() }
         state = state.copy(
             profile = profileRequest.await(),
             myRequests = mineRequest.await(),
             contributionHistory = historyRequest.await(),
+            repayments = repaymentsRequest.await(),
         )
+    }
+
+    fun refreshRepayments() = launchUi(refreshAction = "Atualizando devoluções", refreshTab = MainTab.RETORNOS) {
+        state = state.copy(repayments = api.myRepayments())
+    }
+
+    fun submitRepaymentProof(repaymentId: String, transactionId: String, upload: ReceiptUpload) = launchUi {
+        api.submitRepaymentProof(repaymentId, transactionId, upload)
+        state = state.copy(message = "Comprovante de devolução enviado.", messageIsError = false)
+        loadAll()
+    }
+
+    fun confirmRepayment(repaymentId: String) = launchUi {
+        val message = api.confirmRepayment(repaymentId)
+        state = state.copy(message = message, messageIsError = false)
+        loadAll()
     }
 
     fun createSupportRequest(amountCents: Long, dueDays: Int, description: String?) = launchUi {

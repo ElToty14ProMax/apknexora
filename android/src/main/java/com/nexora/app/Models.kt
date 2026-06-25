@@ -43,6 +43,8 @@ data class Profile(
     val invitedCount: Int,
     val adminFeeDueCents: Long,
     val adminFeeLimitCents: Long,
+    val pendingRepaymentCount: Int,
+    val overdueRepaymentCount: Int,
     val pixKeyMasked: String,
     val adminPixKey: String?,
 )
@@ -67,9 +69,48 @@ data class SupportRequest(
     val amountCents: Long,
     val fundedCents: Long,
     val dueDays: Int,
+    val dueAt: Long?,
     val status: String,
     val description: String?,
     val createdAt: Long,
+    val returnedAt: Long?,
+    val overdue: Boolean,
+)
+
+data class Repayment(
+    val id: String,
+    val requestId: String,
+    val requestPublicCode: String,
+    val direction: String,
+    val counterpartyPublicId: String,
+    val counterpartyName: String,
+    val amountCents: Long,
+    val dueAt: Long?,
+    val returnedAt: Long?,
+    val status: String,
+    val overdue: Boolean,
+    val daysRemaining: Int?,
+    val penaltyMessage: String?,
+    val pixKeyMasked: String?,
+    val pixCopyCode: String?,
+    val transactionId: String?,
+    val hasReceipt: Boolean,
+    val receiptDate: String?,
+    val submittedAt: Long?,
+    val confirmedAt: Long?,
+)
+
+data class RepaymentSummary(
+    val pendingCount: Int = 0,
+    val overdueCount: Int = 0,
+    val pendingAmountCents: Long = 0,
+    val nextDueAt: Long? = null,
+)
+
+data class RepaymentWorkspace(
+    val owed: List<Repayment> = emptyList(),
+    val receivable: List<Repayment> = emptyList(),
+    val summary: RepaymentSummary = RepaymentSummary(),
 )
 
 data class AdminUser(
@@ -239,6 +280,8 @@ fun JSONObject.toProfile(): Profile = Profile(
     invitedCount = getInt("invitedCount"),
     adminFeeDueCents = getLong("adminFeeDueCents"),
     adminFeeLimitCents = getLong("adminFeeLimitCents"),
+    pendingRepaymentCount = optInt("pendingRepaymentCount"),
+    overdueRepaymentCount = optInt("overdueRepaymentCount"),
     pixKeyMasked = getString("pixKeyMasked"),
     adminPixKey = optString("adminPixKey").takeIf { it.isNotBlank() && it != "null" },
 )
@@ -263,9 +306,35 @@ fun JSONObject.toSupportRequest(): SupportRequest = SupportRequest(
     amountCents = getLong("amountCents"),
     fundedCents = getLong("fundedCents"),
     dueDays = getInt("dueDays"),
+    dueAt = optLong("dueAt").takeIf { has("dueAt") && !isNull("dueAt") && it > 0L },
     status = getString("status"),
     description = optString("description").takeIf { it.isNotBlank() && it != "null" },
     createdAt = optLong("createdAt", 0L),
+    returnedAt = optLong("returnedAt").takeIf { has("returnedAt") && !isNull("returnedAt") && it > 0L },
+    overdue = optBoolean("overdue"),
+)
+
+fun JSONObject.toRepayment(): Repayment = Repayment(
+    id = getString("id"),
+    requestId = getString("requestId"),
+    requestPublicCode = getString("requestPublicCode"),
+    direction = getString("direction"),
+    counterpartyPublicId = getString("counterpartyPublicId"),
+    counterpartyName = getString("counterpartyName"),
+    amountCents = getLong("amountCents"),
+    dueAt = optLong("dueAt").takeIf { has("dueAt") && !isNull("dueAt") && it > 0L },
+    returnedAt = optLong("returnedAt").takeIf { has("returnedAt") && !isNull("returnedAt") && it > 0L },
+    status = getString("status"),
+    overdue = optBoolean("overdue"),
+    daysRemaining = optInt("daysRemaining").takeIf { has("daysRemaining") && !isNull("daysRemaining") },
+    penaltyMessage = optString("penaltyMessage").takeIf { it.isNotBlank() && it != "null" },
+    pixKeyMasked = optString("pixKeyMasked").takeIf { it.isNotBlank() && it != "null" },
+    pixCopyCode = optString("pixCopyCode").takeIf { it.isNotBlank() && it != "null" },
+    transactionId = optString("transactionId").takeIf { it.isNotBlank() && it != "null" },
+    hasReceipt = optBoolean("hasReceipt"),
+    receiptDate = optString("receiptDate").takeIf { it.isNotBlank() && it != "null" },
+    submittedAt = optLong("submittedAt").takeIf { has("submittedAt") && !isNull("submittedAt") && it > 0L },
+    confirmedAt = optLong("confirmedAt").takeIf { has("confirmedAt") && !isNull("confirmedAt") && it > 0L },
 )
 
 fun JSONObject.toAdminUser(): AdminUser = AdminUser(

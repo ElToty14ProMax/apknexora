@@ -40,11 +40,13 @@ import type {
   OcrResult,
   PixInstruction,
   Profile,
+  Repayment,
+  RepaymentWorkspace,
   SupportRequest,
 } from "./types";
 import { compactId, copyText, dateTime, fileToBase64, isRandomPixKey, isValidCpf, money, onlyDigits, sha256Hex } from "./utils";
 
-type Page = "dashboard" | "community" | "request" | "history" | "profile" | "admin" | "settings";
+type Page = "dashboard" | "community" | "request" | "repayments" | "history" | "profile" | "admin" | "settings";
 type AdminTab = "users" | "requests" | "contributions";
 type Notice = { text: string; kind: "ok" | "error" } | null;
 type BeforeInstallPromptEvent = Event & {
@@ -54,7 +56,8 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
-const androidApkUrl = "/downloads/Nexora-clientes-debug-2026-06-20-ocrfix-v2.apk";
+const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-docker-xpfix.apk";
+const MIN_CONTRIBUTION_CENTS = 500;
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
 
@@ -83,6 +86,14 @@ function statusLabel(status: string): string {
   return labels[status] || status.replace(/_/g, " ").toLowerCase();
 }
 
+function repaymentStatusLabel(status: string): string {
+  return ({
+    PENDING: "Pagamento pendente",
+    PROOF_SUBMITTED: "Comprovante enviado",
+    CONFIRMED: "Devolução confirmada",
+  } as Record<string, string>)[status] || status;
+}
+
 function formatBirthdateInput(value: string): string {
   const digits = onlyDigits(value).slice(0, 8);
   if (digits.length <= 2) return digits;
@@ -93,6 +104,13 @@ function formatBirthdateInput(value: string): string {
 function birthdateCursorOffset(digitCount: number): number {
   const digits = Math.min(Math.max(digitCount, 0), 8);
   return digits + (digits > 2 ? 1 : 0) + (digits > 4 ? 1 : 0);
+}
+
+function moneyInputToCents(value: string): number {
+  const normalized = value.trim().replace(/\./g, "").replace(",", ".");
+  const amount = Number(normalized);
+
+  return Number.isFinite(amount) ? Math.round(amount * 100) : 0;
 }
 
 function formatBirthdateInputWithCursor(value: string, cursor: number): { value: string; cursor: number } {
@@ -155,6 +173,11 @@ export function App() {
   const [community, setCommunity] = useState<SupportRequest[]>([]);
   const [myRequests, setMyRequests] = useState<SupportRequest[]>([]);
   const [history, setHistory] = useState<ContributionHistory[]>([]);
+  const [repayments, setRepayments] = useState<RepaymentWorkspace>({
+    owed: [],
+    receivable: [],
+    summary: { pendingCount: 0, overdueCount: 0, pendingAmountCents: 0, nextDueAt: null },
+  });
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [adminRequests, setAdminRequests] = useState<AdminSupport[]>([]);
@@ -186,6 +209,7 @@ export function App() {
     setCommunity([]);
     setMyRequests([]);
     setHistory([]);
+    setRepayments({ owed: [], receivable: [], summary: { pendingCount: 0, overdueCount: 0, pendingAmountCents: 0, nextDueAt: null } });
     setAdminOverview(null);
     setAdminUsers([]);
     setAdminRequests([]);
@@ -200,17 +224,19 @@ export function App() {
       if (!silent) setRefreshing(true);
       try {
         const nextProfile = await api.me(sessionToken);
-        const [nextDashboard, nextCommunity, nextRequests, nextHistory] = await Promise.all([
+        const [nextDashboard, nextCommunity, nextRequests, nextHistory, nextRepayments] = await Promise.all([
           api.dashboard(sessionToken),
           api.community(sessionToken),
           api.myRequests(sessionToken),
           api.myContributions(sessionToken),
+          api.myRepayments(sessionToken),
         ]);
         setProfile(nextProfile);
         setDashboard(nextDashboard);
         setCommunity(nextCommunity);
         setMyRequests(nextRequests);
         setHistory(nextHistory);
+        setRepayments(nextRepayments);
 
         if (nextProfile.role === "ADMIN" || nextProfile.role === "SUPER_ADMIN") {
           const [overview, users, requests, contributions, logs] = await Promise.all([
@@ -282,6 +308,7 @@ export function App() {
                 dashboard={dashboard}
                 myRequests={myRequests}
                 history={history}
+                repayments={repayments}
                 onNavigate={setPage}
               />
             )}
@@ -311,6 +338,15 @@ export function App() {
                 token={token}
                 api={api}
                 history={history}
+                showNotice={showNotice}
+                reload={() => loadWorkspace(token, true)}
+              />
+            )}
+            {page === "repayments" && (
+              <RepaymentsView
+                token={token}
+                api={api}
+                workspace={repayments}
                 showNotice={showNotice}
                 reload={() => loadWorkspace(token, true)}
               />
@@ -358,6 +394,7 @@ function Sidebar({
     { page: "dashboard", label: "Painel", icon: <LayoutDashboard size={18} /> },
     { page: "community", label: "Comunidade", icon: <Users size={18} /> },
     { page: "request", label: "Solicitar", icon: <CreditCard size={18} /> },
+    { page: "repayments", label: "Devoluções", icon: <RotateCcw size={18} /> },
     { page: "history", label: "Histórico", icon: <History size={18} /> },
     { page: "profile", label: "Perfil", icon: <UserRound size={18} /> },
     { page: "admin", label: "Admin", icon: <ShieldCheck size={18} />, admin: true },
@@ -806,12 +843,14 @@ function DashboardView({
   dashboard,
   myRequests,
   history,
+  repayments,
   onNavigate,
 }: {
   profile: Profile;
   dashboard: Dashboard | null;
   myRequests: SupportRequest[];
   history: ContributionHistory[];
+  repayments: RepaymentWorkspace;
   onNavigate: (page: Page) => void;
 }) {
   const activeMine = myRequests.filter((item) => ["PENDING_ADMIN", "OPEN", "FUNDED"].includes(item.status));
@@ -828,6 +867,22 @@ function DashboardView({
           Ver convite
         </button>
       </div>
+      {repayments.summary.pendingCount > 0 && (
+        <button
+          className={cn("repayment-alert", repayments.summary.overdueCount > 0 && "overdue")}
+          onClick={() => onNavigate("repayments")}
+        >
+          <RotateCcw size={22} />
+          <span>
+            <strong>{repayments.summary.overdueCount > 0 ? "Você tem devoluções em atraso" : "Próxima devolução"}</strong>
+            <small>
+              {money(repayments.summary.pendingAmountCents)} pendentes
+              {repayments.summary.nextDueAt ? ` · vence em ${dateTime(repayments.summary.nextDueAt)}` : ""}
+            </small>
+          </span>
+          <ChevronRight size={20} />
+        </button>
+      )}
       <div className="metric-grid">
         <Metric label="Solicitacoes ativas" value={dashboard?.activeRequests ?? 0} />
         <Metric label="Operações concluídas" value={dashboard?.completedOperations ?? completed} />
@@ -880,7 +935,11 @@ function CommunityView({
   const [splitAmount, setSplitAmount] = useState("");
 
   const autoSplit = async () => {
-    const amountCents = Math.round(Number(splitAmount || 0) * 100);
+    const amountCents = moneyInputToCents(splitAmount);
+    if (amountCents < MIN_CONTRIBUTION_CENTS) {
+      showNotice("Doacao minima de R$ 5,00.", "error");
+      return;
+    }
     setBusyAction("auto-split");
     try {
       const result = await api.autoSplit(token, amountCents);
@@ -898,7 +957,7 @@ function CommunityView({
     <section className="view-stack">
       <Panel title="Distribuir por ordem cronológica" action={
         <div className="inline-form">
-          <input value={splitAmount} onChange={(event) => setSplitAmount(event.target.value)} inputMode="decimal" placeholder="Valor R$" />
+          <input value={splitAmount} onChange={(event) => setSplitAmount(event.target.value)} inputMode="decimal" placeholder="Min. R$ 5,00" />
           <button onClick={autoSplit} disabled={busyAction === "auto-split"}>
             {busyAction === "auto-split" ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
             Distribuir
@@ -947,7 +1006,7 @@ function RequestView({
     setBusy(true);
     try {
       await api.createSupportRequest(token, {
-        amountCents: Math.round(Number(amount || 0) * 100),
+        amountCents: moneyInputToCents(amount),
         dueDays: Number(dueDays),
         description,
       });
@@ -990,6 +1049,162 @@ function RequestView({
         </div>
       </Panel>
     </section>
+  );
+}
+
+function RepaymentsView({
+  token,
+  api,
+  workspace,
+  showNotice,
+  reload,
+}: {
+  token: string;
+  api: NexoraApi;
+  workspace: RepaymentWorkspace;
+  showNotice: (text: string, kind?: "ok" | "error") => void;
+  reload: () => Promise<void>;
+}) {
+  return (
+    <section className="view-stack">
+      <div className="hero-panel repayment-hero">
+        <div>
+          <span className="eyebrow">Organização automática</span>
+          <h2>Devoluções</h2>
+          <p>Veja quanto devolver, para quem, o prazo e a situação de cada comprovante.</p>
+        </div>
+        <div className="repayment-total">
+          <small>Total pendente</small>
+          <strong>{money(workspace.summary.pendingAmountCents)}</strong>
+        </div>
+      </div>
+      {workspace.summary.overdueCount > 0 && (
+        <div className="inline-warning danger">
+          <AlertCircle size={20} />
+          <span>Você tem {workspace.summary.overdueCount} devolução(ões) em atraso. Novas solicitações ficam bloqueadas até a regularização.</span>
+        </div>
+      )}
+      <div className="two-columns repayment-columns">
+        <Panel title="Preciso devolver">
+          <ListEmpty show={workspace.owed.length === 0} text="Nenhuma devolução pendente ou concluída." />
+          {workspace.owed.map((item) => (
+            <RepaymentCard key={item.id} token={token} api={api} item={item} showNotice={showNotice} reload={reload} />
+          ))}
+        </Panel>
+        <Panel title="Tenho a receber">
+          <ListEmpty show={workspace.receivable.length === 0} text="Nenhum recebimento de devolução." />
+          {workspace.receivable.map((item) => (
+            <RepaymentCard key={item.id} token={token} api={api} item={item} showNotice={showNotice} reload={reload} />
+          ))}
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function RepaymentCard({
+  token,
+  api,
+  item,
+  showNotice,
+  reload,
+}: {
+  token: string;
+  api: NexoraApi;
+  item: Repayment;
+  showNotice: (text: string, kind?: "ok" | "error") => void;
+  reload: () => Promise<void>;
+}) {
+  const [transactionId, setTransactionId] = useState(item.transactionId || "");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const owed = item.direction === "OWED";
+
+  const copyPix = async () => {
+    if (!item.pixCopyCode) return;
+    await copyText(item.pixCopyCode);
+    showNotice("Código Pix da devolução copiado.");
+  };
+
+  const submitProof = async () => {
+    if (!file || transactionId.trim().length < 6) {
+      showNotice("Informe o ID da transação e anexe o comprovante.", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const [receiptHash, receiptImageBase64] = await Promise.all([sha256Hex(file), fileToBase64(file)]);
+      await api.submitRepaymentProof(token, item.id, {
+        transactionId: transactionId.trim(),
+        receiptMimeType: file.type || "image/jpeg",
+        receiptImageBase64,
+        receiptHash,
+      });
+      showNotice("Comprovante de devolução enviado ao destinatário.");
+      await reload();
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Falha ao enviar a devolução.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmReceipt = async () => {
+    setBusy(true);
+    try {
+      const result = await api.confirmRepayment(token, item.id);
+      showNotice(result.message);
+      await reload();
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Falha ao confirmar o recebimento.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article className={cn("repayment-card", item.overdue && "overdue", item.status === "CONFIRMED" && "completed")}>
+      <div className="repayment-card-head">
+        <div>
+          <strong>{money(item.amountCents)}</strong>
+          <span>{item.requestPublicCode}</span>
+        </div>
+        <span className="status-badge">{repaymentStatusLabel(item.status)}</span>
+      </div>
+      <div className="repayment-details">
+        <span>{owed ? "Devolver para" : "Receber de"}: <b>{item.counterpartyName}</b> · {item.counterpartyPublicId}</span>
+        <span>Prazo: <b>{item.dueAt ? dateTime(item.dueAt) : "aguardando financiamento completo"}</b></span>
+        {item.daysRemaining !== null && item.status !== "CONFIRMED" && (
+          <span className={item.overdue ? "danger-text" : ""}>
+            {item.overdue ? `${Math.abs(item.daysRemaining)} dia(s) em atraso` : `${item.daysRemaining} dia(s) restantes`}
+          </span>
+        )}
+        {item.pixKeyMasked && <span>Pix destinatário: <b>{item.pixKeyMasked}</b></span>}
+        {item.transactionId && <span>ID da devolução: <b>{item.transactionId}</b></span>}
+      </div>
+      {owed && item.status === "PENDING" && (
+        <div className="repayment-actions-stack">
+          <button className="secondary" type="button" onClick={() => void copyPix()} disabled={!item.pixCopyCode}>
+            <Copy size={16} /> Copiar Pix para devolver
+          </button>
+          <input value={transactionId} onChange={(event) => setTransactionId(event.target.value)} placeholder="ID da transação Pix" maxLength={80} />
+          <label className="file-field">
+            Comprovante da devolução
+            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+          </label>
+          <button type="button" onClick={() => void submitProof()} disabled={busy}>
+            {busy ? <Loader2 className="spin" size={16} /> : <Send size={16} />} Enviar comprovante
+          </button>
+        </div>
+      )}
+      {owed && item.status === "PROOF_SUBMITTED" && <p className="muted">Aguardando o destinatário confirmar que recebeu a devolução.</p>}
+      {!owed && item.status === "PROOF_SUBMITTED" && (
+        <button type="button" className="confirm" onClick={() => void confirmReceipt()} disabled={busy}>
+          {busy ? <Loader2 className="spin" size={16} /> : <Check size={16} />} Confirmar que recebi
+        </button>
+      )}
+      {item.penaltyMessage && <p className="danger-text">{item.penaltyMessage}</p>}
+    </article>
   );
 }
 

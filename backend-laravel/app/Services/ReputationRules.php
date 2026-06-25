@@ -10,6 +10,8 @@ class ReputationRules
 
     public const ADMIN_FEE_BLOCK_LIMIT_CENTS = 500;
 
+    public const MIN_CONTRIBUTION_CENTS = 500;
+
     private const MAX_BUFF_BPS = 10000;
 
     private const SUPPORT_LIMIT_ANCHORS_REAIS = [
@@ -130,11 +132,11 @@ class ReputationRules
         return $level >= self::MIN_HELP_LEVEL && $xp >= self::MIN_HELP_XP;
     }
 
-    public static function xpForCompletedReturn(int $amountCents, int $buffBps): int
+    public static function xpForConfirmedContribution(int $amountCents, int $buffBps): int
     {
-        $baseXp = max(intdiv($amountCents, 100), 1);
+        $baseXp = max(intdiv($amountCents, 100), 0);
 
-        return max(intdiv($baseXp * (10000 + $buffBps), 10000), 1);
+        return intdiv($baseXp * (10000 + $buffBps), 10000);
     }
 
     public static function recalculateBuffBps(int $onTimeReturnedCents, int $earlyReturnedCents, int $guestsAtLevelFive): int

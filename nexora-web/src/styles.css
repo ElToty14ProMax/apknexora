@@ -1548,3 +1548,126 @@ td.table-actions {
   color: var(--teal);
   word-break: break-all;
 }
+
+.repayment-alert {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  color: var(--text);
+  text-align: left;
+  border: 1px solid rgba(33, 217, 120, 0.38);
+  background: rgba(33, 217, 120, 0.08);
+}
+
+.repayment-alert.overdue {
+  border-color: rgba(255, 107, 107, 0.55);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.repayment-alert span,
+.repayment-total,
+.repayment-card-head > div,
+.repayment-details,
+.repayment-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.repayment-alert small,
+.repayment-total small,
+.repayment-card-head span,
+.repayment-details span {
+  color: var(--muted);
+}
+
+.repayment-hero {
+  align-items: center;
+}
+
+.repayment-total {
+  min-width: 180px;
+  text-align: right;
+}
+
+.repayment-total strong {
+  color: var(--green);
+  font-size: 26px;
+}
+
+.inline-warning {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.inline-warning.danger {
+  color: var(--red);
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.repayment-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.repayment-card.overdue {
+  border-color: rgba(255, 107, 107, 0.55);
+}
+
+.repayment-card.completed {
+  opacity: 0.74;
+}
+
+.repayment-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.repayment-card-head strong {
+  color: var(--green);
+  font-size: 22px;
+}
+
+.status-badge {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(33, 217, 120, 0.12);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.repayment-actions-stack {
+  padding-top: 4px;
+}
+
+.repayment-actions-stack button,
+.repayment-card > button {
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .repayment-total {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .repayment-card-head {
+    flex-direction: column;
+  }
+}

@@ -42,4 +42,11 @@ class ReputationRulesTest extends TestCase
         $this->assertSame(50, ReputationRules::recalculateBuffBps(100000, 100000, 1));
         $this->assertSame(10000, ReputationRules::recalculateBuffBps(1000000000, 1000000000, 1000));
     }
+
+    public function test_confirmed_contribution_xp_is_one_per_real_with_buff(): void
+    {
+        $this->assertSame(5, ReputationRules::xpForConfirmedContribution(500, 0));
+        $this->assertSame(5, ReputationRules::xpForConfirmedContribution(550, 0));
+        $this->assertSame(150, ReputationRules::xpForConfirmedContribution(10000, 5000));
+    }
 }

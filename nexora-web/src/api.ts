@@ -10,6 +10,8 @@ import type {
   OcrResult,
   PixInstruction,
   Profile,
+  Repayment,
+  RepaymentWorkspace,
   SupportRequest,
 } from "./types";
 
@@ -147,6 +149,35 @@ export class NexoraApi {
 
   myContributions(token: string) {
     return this.request<ContributionHistory[]>("/support-requests/contributions/mine", { token });
+  }
+
+  myRepayments(token: string) {
+    return this.request<RepaymentWorkspace>("/repayments/mine", { token });
+  }
+
+  submitRepaymentProof(
+    token: string,
+    repaymentId: string,
+    body: {
+      transactionId: string;
+      receiptMimeType: string;
+      receiptImageBase64: string;
+      receiptHash: string;
+    },
+  ) {
+    return this.request<Repayment>(`/repayments/${repaymentId}/proof`, {
+      method: "POST",
+      token,
+      body,
+    });
+  }
+
+  confirmRepayment(token: string, repaymentId: string) {
+    return this.request<{ ok: boolean; message: string; supportCompleted: boolean }>(`/repayments/${repaymentId}/confirm`, {
+      method: "POST",
+      token,
+      body: {},
+    });
   }
 
   createSupportRequest(token: string, body: { amountCents: number; dueDays: number; description: string }) {

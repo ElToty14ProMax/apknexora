@@ -17,6 +17,9 @@ Route::prefix('auth')->middleware('throttle:12,1')->group(function () {
 Route::get('/me', [NexoraController::class, 'me']);
 Route::get('/dashboard', [NexoraController::class, 'dashboard']);
 Route::get('/community', [NexoraController::class, 'community']);
+Route::get('/repayments/mine', [NexoraController::class, 'myRepayments']);
+Route::post('/repayments/{id}/proof', [NexoraController::class, 'submitRepaymentProof']);
+Route::post('/repayments/{id}/confirm', [NexoraController::class, 'confirmRepayment']);
 
 Route::prefix('support-requests')->group(function () {
     Route::get('/mine', [NexoraController::class, 'myRequests']);

@@ -118,6 +118,41 @@ class ApiClient(
         requestArray("/support-requests/contributions/mine").mapObjects { it.toContributionHistory() }
     }
 
+    suspend fun myRepayments(): RepaymentWorkspace = withContext(Dispatchers.IO) {
+        val response = requestObject("/repayments/mine")
+        val summary = response.getJSONObject("summary")
+        RepaymentWorkspace(
+            owed = response.getJSONArray("owed").mapObjects { it.toRepayment() },
+            receivable = response.getJSONArray("receivable").mapObjects { it.toRepayment() },
+            summary = RepaymentSummary(
+                pendingCount = summary.optInt("pendingCount"),
+                overdueCount = summary.optInt("overdueCount"),
+                pendingAmountCents = summary.optLong("pendingAmountCents"),
+                nextDueAt = summary.optLong("nextDueAt").takeIf { summary.has("nextDueAt") && !summary.isNull("nextDueAt") && it > 0L },
+            ),
+        )
+    }
+
+    suspend fun submitRepaymentProof(repaymentId: String, transactionId: String, upload: ReceiptUpload) = withContext(Dispatchers.IO) {
+        requestObject(
+            path = "/repayments/$repaymentId/proof",
+            method = "POST",
+            body = JSONObject()
+                .put("transactionId", transactionId)
+                .put("receiptHash", upload.hash)
+                .put("receiptImageBase64", upload.imageBase64)
+                .put("receiptMimeType", upload.mimeType),
+        ).toRepayment()
+    }
+
+    suspend fun confirmRepayment(repaymentId: String): String = withContext(Dispatchers.IO) {
+        requestObject(
+            path = "/repayments/$repaymentId/confirm",
+            method = "POST",
+            body = JSONObject(),
+        ).optString("message", "Recebimento confirmado.")
+    }
+
     suspend fun createSupportRequest(amountCents: Long, dueDays: Int, description: String?) = withContext(Dispatchers.IO) {
         requestObject(
             path = "/support-requests",

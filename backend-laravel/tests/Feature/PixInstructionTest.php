@@ -74,6 +74,14 @@ class PixInstructionTest extends TestCase
             'approved_at' => $now,
         ]);
 
+        $this
+            ->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/support-requests/support-test/contributions', [
+                'amountCents' => 499,
+            ])
+            ->assertStatus(400)
+            ->assertJsonFragment(['error' => 'Doacao minima de R$ 5,00.']);
+
         $response = $this
             ->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/support-requests/support-test/contributions', [

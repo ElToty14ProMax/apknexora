@@ -1,0 +1,134 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-laravel-build: &laravel-build
+  context: ./backend-laravel
+  dockerfile: Dockerfile
+
+x-laravel-env: &laravel-env
+  APP_ENV: production
+  APP_DEBUG: "false"
+  LOG_CHANNEL: stderr
+  CACHE_STORE: array
+  SESSION_DRIVER: array
+  QUEUE_CONNECTION: sync
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    read_only: true
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NEXORA_DOMAIN: ${NEXORA_DOMAIN:-nexoraappbr.com}
+      NEXORA_WWW_DOMAIN: ${NEXORA_WWW_DOMAIN:-www.nexoraappbr.com}
+      ACME_EMAIL: ${ACME_EMAIL:-nexora@nexoraappbr.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  app:
+    build: *laravel-build
+    env_file:
+      - ./backend-laravel/.env
+    environment:
+      <<: *laravel-env
+      NEXORA_CACHE_ON_BOOT: "true"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    expose:
+      - "9000"
+    volumes:
+      - laravel-storage:/var/www/nexora/storage
+      - laravel-cache:/var/www/nexora/bootstrap/cache
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /usr/local/var/log:rw,noexec,nosuid,size=16m
+      - /usr/local/var/run:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "nexora-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  scheduler:
+    build: *laravel-build
+    env_file:
+      - ./backend-laravel/.env
+    environment:
+      <<: *laravel-env
+      NEXORA_CACHE_ON_BOOT: "false"
+    command: ["sh", "-lc", "while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - laravel-storage:/var/www/nexora/storage
+      - laravel-cache:/var/www/nexora/bootstrap/cache
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        VITE_API_URL: /api
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    read_only: true
+    expose:
+      - "8080"
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=64m
+      - /var/run:rw,noexec,nosuid,size=16m
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  caddy-data:
+  caddy-config:
+  laravel-storage:
+  laravel-cache:

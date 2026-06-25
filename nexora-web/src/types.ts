@@ -17,6 +17,8 @@ export type Profile = {
   invitedCount: number;
   adminFeeDueCents: number;
   adminFeeLimitCents: number;
+  pendingRepaymentCount: number;
+  overdueRepaymentCount: number;
   pixKeyMasked: string;
   adminPixKey: string | null;
 };
@@ -46,9 +48,46 @@ export type SupportRequest = {
   amountCents: number;
   fundedCents: number;
   dueDays: number;
+  dueAt: number | null;
   status: string;
   description: string | null;
   createdAt: number;
+  returnedAt: number | null;
+  overdue: boolean;
+};
+
+export type Repayment = {
+  id: string;
+  requestId: string;
+  requestPublicCode: string;
+  direction: "OWED" | "RECEIVABLE";
+  counterpartyPublicId: string;
+  counterpartyName: string;
+  amountCents: number;
+  dueAt: number | null;
+  returnedAt: number | null;
+  status: "PENDING" | "PROOF_SUBMITTED" | "CONFIRMED";
+  overdue: boolean;
+  daysRemaining: number | null;
+  penaltyMessage: string | null;
+  pixKeyMasked: string | null;
+  pixCopyCode: string | null;
+  transactionId: string | null;
+  hasReceipt: boolean;
+  receiptDate: string | null;
+  submittedAt: number | null;
+  confirmedAt: number | null;
+};
+
+export type RepaymentWorkspace = {
+  owed: Repayment[];
+  receivable: Repayment[];
+  summary: {
+    pendingCount: number;
+    overdueCount: number;
+    pendingAmountCents: number;
+    nextDueAt: number | null;
+  };
 };
 
 export type PixInstruction = {
@@ -166,6 +205,12 @@ export type AdminContribution = {
   receiverOcrRawText: string | null;
   ocrComparisonResult: string | null;
   ocrComparisonNotes: string | null;
+  returnStatus: string | null;
+  returnTransactionId: string | null;
+  returnReceiptHash: string | null;
+  returnReceiptDate: string | null;
+  returnSubmittedAt: number | null;
+  returnConfirmedAt: number | null;
 };
 
 export type OcrComparison = {
