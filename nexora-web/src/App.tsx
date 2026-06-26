@@ -56,7 +56,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
-const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-privacy-esfix.apk?v=20260625-privacy-esfix";
+const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-pixkey-fix.apk?v=20260625-pixkey-fix";
 const MIN_CONTRIBUTION_CENTS = 500;
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
@@ -2140,7 +2140,7 @@ function PixModal({
         <Metric label="Valor" value={money(instruction.amountCents)} />
         <ProtectedPixCopyField value={instruction.pixCopyCode} showNotice={showNotice} />
         <p className="muted">{instruction.message}</p>
-        <p className="secure-note">A Nexora gera este código com a chave Pix da plataforma para não expor os dados da pessoa solicitante dentro do app.</p>
+        <p className="secure-note">A Nexora copia a chave Pix aleatória cadastrada pela pessoa solicitante. O nome da pessoa não aparece dentro do app.</p>
       </div>
     </div>
   );
@@ -2155,17 +2155,17 @@ function ProtectedPixCopyField({
 }) {
   const copy = async () => {
     await copyText(value);
-    showNotice("Código Pix copiado.");
+    showNotice("Chave Pix copiada.");
   };
 
   return (
     <div className="protected-copy-field">
       <div>
-        <span>Código Pix protegido</span>
-        <p>Por privacidade, o código completo não aparece na tela. Use o botão para copiar e pagar no banco.</p>
+        <span>Chave Pix aleatória</span>
+        <p>Por privacidade, a chave completa não aparece na tela. Use o botão para copiar e pagar no banco.</p>
       </div>
-      <button type="button" onClick={copy} disabled={!value} aria-label="Copiar código Pix protegido">
-        <Copy size={16} /> Copiar código
+      <button type="button" onClick={copy} disabled={!value} aria-label="Copiar chave Pix aleatória">
+        <Copy size={16} /> Copiar chave
       </button>
     </div>
   );

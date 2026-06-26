@@ -618,7 +618,7 @@ class NexoraController extends Controller
             'allocatedAmountCents' => $allocated,
             'unallocatedAmountCents' => max($total - $allocated, 0),
             'instructions' => $instructions,
-            'message' => 'Pix fracionado por ordem cronológica. Use cada código Pix gerado pela Nexora e envie os comprovantes depois da transferência.',
+            'message' => 'Pix fracionado por ordem cronológica. Use cada chave Pix aleatória copiada e envie os comprovantes depois da transferência.',
         ], 201);
     }
 
@@ -1910,20 +1910,6 @@ class NexoraController extends Controller
         return $key !== '' ? $key : null;
     }
 
-    private function supportPixKey(): string
-    {
-        $key = trim((string) config('nexora.support_pix_key'));
-        if ($key === '') {
-            throw new ApiException(500, 'Chave Pix da plataforma não configurada.');
-        }
-
-        try {
-            return PixCopyCode::normalizePixKey($key);
-        } catch (\InvalidArgumentException) {
-            throw new ApiException(500, 'Chave Pix da plataforma deve ser aleatória ou CNPJ PJ para preservar a privacidade.');
-        }
-    }
-
     private function adminSupportResponse(object $support, object $requester): array
     {
         return [
@@ -1949,29 +1935,23 @@ class NexoraController extends Controller
 
     private function instructionResponse(object $contribution, object $support): array
     {
-        $reference = $this->security->paymentReference($contribution->id);
-        $platformPixKey = $this->supportPixKey();
-
-        try {
-            $pixCode = PixCopyCode::build(
-                $platformPixKey,
-                (int) $contribution->amount_cents,
-                $reference,
-                (string) config('nexora.pix_merchant_name', 'NEXORA'),
-                (string) config('nexora.pix_merchant_city'),
-            );
-        } catch (\InvalidArgumentException $error) {
-            throw new ApiException(422, $error->getMessage());
+        $requester = $this->userById($support->requester_id);
+        if ($requester === null) {
+            throw new ApiException(404, 'Destinatário da solicitação não encontrado.');
+        }
+        $receiverPixKey = strtolower(trim($this->security->decrypt($requester->pix_cipher)));
+        if (! $this->security->isValidPixKey($receiverPixKey)) {
+            throw new ApiException(422, 'Chave Pix aleatória do solicitante inválida.');
         }
 
         return [
             'contributionId' => $contribution->id,
             'requestPublicCode' => $support->public_code,
             'receiverIdentifier' => $support->public_code,
-            'receiverPixKey' => '',
-            'pixCopyCode' => $pixCode,
+            'receiverPixKey' => $receiverPixKey,
+            'pixCopyCode' => $receiverPixKey,
             'amountCents' => (int) $contribution->amount_cents,
-            'message' => 'Use o código Pix copia-e-cola gerado pela Nexora para fazer a transferência. Depois, quem enviou e quem recebeu devem anexar a foto do comprovante para revisão.',
+            'message' => 'Copie a chave Pix aleatória do solicitante para fazer a transferência no banco. Depois, quem enviou e quem recebeu devem anexar a foto do comprovante para revisão.',
         ];
     }
 

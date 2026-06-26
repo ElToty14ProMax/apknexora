@@ -12,11 +12,10 @@ class PixInstructionTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_contribution_pix_code_uses_the_platform_pix_key_and_hides_requester_data(): void
+    public function test_contribution_instruction_copies_the_requester_random_pix_key(): void
     {
         config([
             'nexora.admin_pix_key' => '67.018.679/0001-17',
-            'nexora.support_pix_key' => '67.018.679/0001-17',
             'nexora.pix_merchant_name' => 'NEXORA',
         ]);
 
@@ -95,10 +94,10 @@ class PixInstructionTest extends TestCase
         $response->assertCreated();
         $payload = $response->json('pixCopyCode');
 
-        $this->assertStringContainsString('67018679000117', $payload);
-        $this->assertStringContainsString('NEXORA', $payload);
-        $this->assertStringNotContainsString('550e8400-e29b-41d4-a716-446655440000', $payload);
+        $this->assertSame('550e8400-e29b-41d4-a716-446655440000', $payload);
+        $this->assertSame('550e8400-e29b-41d4-a716-446655440000', $response->json('receiverPixKey'));
+        $this->assertStringNotContainsString('67018679000117', $payload);
+        $this->assertStringNotContainsString('NEXORA', $payload);
         $this->assertStringNotContainsString('PESSOA RECEBEDORA', $payload);
-        $this->assertSame('', $response->json('receiverPixKey'));
     }
 }

@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Services\PixCopyCode;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 
@@ -17,6 +16,9 @@ $password = 'CodexTest!'.$runId;
 $adminEmail = 'codex-admin-'.$runId.'@nexoraappbr.com';
 $requesterEmail = 'codex-req-'.$runId.'@nexoraappbr.com';
 $donorEmail = 'codex-donor-'.$runId.'@nexoraappbr.com';
+$adminPixKey = '00000000-0000-4000-8000-000000000001';
+$requesterPixKey = '00000000-0000-4000-8000-000000000002';
+$donorPixKey = '00000000-0000-4000-8000-000000000003';
 $adminCpf = generateCpf(((int) substr($runId, -9)) + 123456);
 $requesterCpf = generateCpf((int) substr($runId, -9));
 $donorCpf = generateCpf((int) substr(strrev($runId), 0, 9));
@@ -154,7 +156,7 @@ try {
         'name' => 'Codex Admin '.$runId,
         'email' => $adminEmail,
         'cpf' => $adminCpf,
-        'pixKey' => $adminEmail,
+        'pixKey' => $adminPixKey,
         'password' => $password,
     ]), [201], fn ($json) => isset($json['message']));
 
@@ -162,7 +164,7 @@ try {
         'name' => 'Codex Requester '.$runId,
         'email' => $requesterEmail,
         'cpf' => $requesterCpf,
-        'pixKey' => $requesterEmail,
+        'pixKey' => $requesterPixKey,
         'password' => $password,
     ]), [201], fn ($json) => isset($json['message']));
 
@@ -170,7 +172,7 @@ try {
         'name' => 'Codex Donor '.$runId,
         'email' => $donorEmail,
         'cpf' => $donorCpf,
-        'pixKey' => $donorEmail,
+        'pixKey' => $donorPixKey,
         'password' => $password,
     ]), [201], fn ($json) => isset($json['message']));
 
@@ -246,19 +248,12 @@ try {
 
     $contribution = record($results, 'POST /support-requests/{id}/contributions', api('POST', '/support-requests/'.$supportId.'/contributions', [
         'amountCents' => 2000,
-    ], bearer($donorToken)), [201], function ($json) use ($requesterEmail) {
+    ], bearer($donorToken)), [201], function ($json) use ($requesterEmail, $requesterPixKey) {
         $code = is_array($json) ? (string) ($json['pixCopyCode'] ?? '') : '';
-        $supportPixKey = (string) config('nexora.support_pix_key');
-        try {
-            $normalizedSupportPixKey = PixCopyCode::normalizePixKey($supportPixKey);
-        } catch (\InvalidArgumentException) {
-            $normalizedSupportPixKey = '';
-        }
         return isset($json['contributionId'])
-            && $code !== ''
-            && ($normalizedSupportPixKey === '' || str_contains($code, $normalizedSupportPixKey))
+            && $code === $requesterPixKey
             && ! str_contains($code, $requesterEmail)
-            && ($json['receiverPixKey'] ?? 'not-empty') === '';
+            && ($json['receiverPixKey'] ?? '') === $requesterPixKey;
     });
     $contributionId = requireJsonValue($contribution, 'contributionId');
 

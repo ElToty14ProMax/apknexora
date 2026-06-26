@@ -4,7 +4,6 @@ return [
     'env' => env('NEXORA_ENV', env('APP_ENV', 'local')),
     'admin_token' => env('NEXORA_ADMIN_TOKEN', 'dev-admin-token-change-me'),
     'admin_pix_key' => env('NEXORA_ADMIN_PIX_KEY', '67.018.679/0001-17'),
-    'support_pix_key' => env('NEXORA_SUPPORT_PIX_KEY', env('NEXORA_ADMIN_PIX_KEY', '')),
     'pix_merchant_name' => env('NEXORA_PIX_MERCHANT_NAME', 'NEXORA'),
     'pix_merchant_city' => env('NEXORA_PIX_MERCHANT_CITY', 'SAO PAULO'),
     'data_key_b64' => env('NEXORA_DATA_KEY_B64'),
