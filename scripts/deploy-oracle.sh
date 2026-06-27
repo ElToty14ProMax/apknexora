@@ -25,7 +25,7 @@ if [ ! -d "${FRONTEND_DIR}" ]; then
 fi
 
 cd "${BACKEND_DIR}"
-composer install --no-dev --optimize-autoloader
+composer install --no-dev --optimize-autoloader --no-scripts
 
 if [ ! -f .env ]; then
   echo "ERROR: ${BACKEND_DIR}/.env is missing."
@@ -37,6 +37,7 @@ sudo chown -R www-data:www-data storage bootstrap/cache
 sudo find storage bootstrap/cache -type d -exec chmod 775 {} \;
 sudo find storage bootstrap/cache -type f -exec chmod 664 {} \;
 
+sudo -u www-data php artisan package:discover --ansi
 sudo -u www-data php artisan config:clear
 sudo -u www-data php artisan cache:clear
 sudo -u www-data php artisan route:clear
