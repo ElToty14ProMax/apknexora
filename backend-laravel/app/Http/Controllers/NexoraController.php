@@ -1949,7 +1949,7 @@ class NexoraController extends Controller
                 $receiverPixKey,
                 (int) $contribution->amount_cents,
                 $this->security->paymentReference($contribution->id),
-                (string) $requester->name,
+                'PIX',
                 (string) config('nexora.pix_merchant_city'),
             );
         } catch (\InvalidArgumentException $error) {
@@ -2238,7 +2238,7 @@ class NexoraController extends Controller
                     $pixKey,
                     (int) $row->amount_cents,
                     $this->security->paymentReference('RET-'.$row->id),
-                    (string) $row->donor_name,
+                    'PIX',
                     (string) config('nexora.pix_merchant_city'),
                 );
             } catch (\InvalidArgumentException) {

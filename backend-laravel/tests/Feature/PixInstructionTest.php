@@ -97,10 +97,11 @@ class PixInstructionTest extends TestCase
         $this->assertStringStartsWith('00020101021226', $payload);
         $this->assertStringContainsString('0136550e8400-e29b-41d4-a716-446655440000', $payload);
         $this->assertStringContainsString('540510.00', $payload);
-        $this->assertStringContainsString('5917PESSOA RECEBEDORA', $payload);
+        $this->assertStringContainsString('5903PIX', $payload);
+        $this->assertStringNotContainsString('NEXORA', $payload);
+        $this->assertStringNotContainsString('PESSOA RECEBEDORA', $payload);
         $this->assertMatchesRegularExpression('/6304[0-9A-F]{4}$/', $payload);
         $this->assertSame('550e8400-e29b-41d4-a716-446655440000', $response->json('receiverPixKey'));
         $this->assertStringNotContainsString('67018679000117', $payload);
-        $this->assertStringNotContainsString('NEXORA', $payload);
     }
 }
