@@ -618,7 +618,7 @@ class NexoraController extends Controller
             'allocatedAmountCents' => $allocated,
             'unallocatedAmountCents' => max($total - $allocated, 0),
             'instructions' => $instructions,
-            'message' => 'Pix fracionado por ordem cronológica. Use cada chave Pix aleatória copiada e envie os comprovantes depois da transferência.',
+            'message' => 'Pix fracionado por ordem cronológica. Cada código Pix Copia e Cola já inclui o destinatário e o valor exato. Confira os dados no banco e envie os comprovantes depois de cada transferência.',
         ], 201);
     }
 
@@ -1944,14 +1944,26 @@ class NexoraController extends Controller
             throw new ApiException(422, 'Chave Pix aleatória do solicitante inválida.');
         }
 
+        try {
+            $pixCode = PixCopyCode::build(
+                $receiverPixKey,
+                (int) $contribution->amount_cents,
+                $this->security->paymentReference($contribution->id),
+                (string) $requester->name,
+                (string) config('nexora.pix_merchant_city'),
+            );
+        } catch (\InvalidArgumentException $error) {
+            throw new ApiException(422, $error->getMessage());
+        }
+
         return [
             'contributionId' => $contribution->id,
             'requestPublicCode' => $support->public_code,
             'receiverIdentifier' => $support->public_code,
             'receiverPixKey' => $receiverPixKey,
-            'pixCopyCode' => $receiverPixKey,
+            'pixCopyCode' => $pixCode,
             'amountCents' => (int) $contribution->amount_cents,
-            'message' => 'Copie a chave Pix aleatória do solicitante para fazer a transferência no banco. Depois, quem enviou e quem recebeu devem anexar a foto do comprovante para revisão.',
+            'message' => 'Copie o código Pix Copia e Cola. A chave do destinatário e o valor exato já estão preenchidos. Confira os dados no banco antes de confirmar e depois anexe o comprovante.',
         ];
     }
 

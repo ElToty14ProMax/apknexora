@@ -22,7 +22,10 @@ class RepaymentFlowTest extends TestCase
             ->assertJsonPath('owed.0.counterpartyPublicId', 'NX-DONOR')
             ->assertJsonPath('owed.0.amountCents', 2000)
             ->assertJsonPath('owed.0.status', 'PENDING');
-        $this->assertNotEmpty($list->json('owed.0.pixCopyCode'));
+        $repaymentPixCode = (string) $list->json('owed.0.pixCopyCode');
+        $this->assertStringContainsString('01369f4c2c7e-7f9b-45c0-8c33-0fa84fb8867b', $repaymentPixCode);
+        $this->assertStringContainsString('540520.00', $repaymentPixCode);
+        $this->assertMatchesRegularExpression('/6304[0-9A-F]{4}$/', $repaymentPixCode);
 
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true);
         $proof = $this->withToken($requesterToken)->postJson('/repayments/contribution-repayment/proof', [

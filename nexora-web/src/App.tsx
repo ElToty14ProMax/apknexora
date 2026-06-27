@@ -56,7 +56,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const tokenKey = "nexora.web.token";
 const apiKey = "nexora.web.apiUrl";
-const androidApkUrl = "/downloads/Nexora-clientes-2026-06-25-pixkey-fix.apk?v=20260625-pixkey-fix";
+const androidApkUrl = "/downloads/Nexora-clientes-2026-06-26-pix-valor.apk?v=20260626-pix-valor";
 const MIN_CONTRIBUTION_CENTS = 500;
 
 const initialInvite = new URLSearchParams(window.location.search).get("invite") || "";
@@ -1123,7 +1123,7 @@ function RepaymentCard({
   const copyPix = async () => {
     if (!item.pixCopyCode) return;
     await copyText(item.pixCopyCode);
-    showNotice("Código Pix da devolução copiado.");
+    showNotice("Código Pix da devolução copiado com o valor preenchido.");
   };
 
   const submitProof = async () => {
@@ -2140,7 +2140,7 @@ function PixModal({
         <Metric label="Valor" value={money(instruction.amountCents)} />
         <ProtectedPixCopyField value={instruction.pixCopyCode} showNotice={showNotice} />
         <p className="muted">{instruction.message}</p>
-        <p className="secure-note">A Nexora copia a chave Pix aleatória cadastrada pela pessoa solicitante. O nome da pessoa não aparece dentro do app.</p>
+        <p className="secure-note">O código inclui a chave do destinatário e o valor exato. Confira ambos no aplicativo do banco antes de confirmar.</p>
       </div>
     </div>
   );
@@ -2155,17 +2155,17 @@ function ProtectedPixCopyField({
 }) {
   const copy = async () => {
     await copyText(value);
-    showNotice("Chave Pix copiada.");
+    showNotice("Código Pix copiado com o valor preenchido.");
   };
 
   return (
     <div className="protected-copy-field">
       <div>
-        <span>Chave Pix aleatória</span>
-        <p>Por privacidade, a chave completa não aparece na tela. Use o botão para copiar e pagar no banco.</p>
+        <span>Pix Copia e Cola com valor</span>
+        <p>Ao colar no banco, o destinatário e o valor desta transferência serão preenchidos automaticamente.</p>
       </div>
-      <button type="button" onClick={copy} disabled={!value} aria-label="Copiar chave Pix aleatória">
-        <Copy size={16} /> Copiar chave
+      <button type="button" onClick={copy} disabled={!value} aria-label="Copiar código Pix Copia e Cola com valor">
+        <Copy size={16} /> Copiar código
       </button>
     </div>
   );
